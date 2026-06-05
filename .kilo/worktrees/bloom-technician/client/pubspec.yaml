@@ -1,0 +1,93 @@
+name: flutter_application_1
+description: "Mobile furniture recoloring app with realistic texture preservation"
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # Camera for taking photos
+  camera: ^0.11.0+2
+
+  # Image picker for selecting existing photos
+  image_picker: ^1.1.2
+
+  # Image processing for recoloring algorithm
+  image: ^4.3.0
+
+  # Color picker UI
+  flex_color_picker: ^3.6.0
+
+  # Path provider for file operations
+  path_provider: ^2.1.4
+
+  # Permission handling
+  permission_handler: ^11.3.1
+
+  # Provider for state management
+  provider: ^6.1.2
+
+  # Shared preferences for persistent project storage
+  shared_preferences: ^2.5.0
+
+# Sharing files
+  share_plus: ^8.0.0
+
+  # Gallery saver for saving images to gallery
+  gallery_saver: ^2.0.1
+
+  # HTTP parser for multipart requests
+  http_parser: ^4.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/logo/Frame 2962.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo/logotip.png
+    - assets/icons/Add_Image.png
+    - assets/icons/Close.png
+    - assets/icons/Color_Dropper.png
+    - assets/icons/Done.png
+    - assets/icons/Eraser.png
+    - assets/icons/Eye.png
+    - assets/icons/Fantasy.png
+    - assets/icons/Fill_Drip.png
+    - assets/icons/Full_Screen.png
+    - assets/icons/Love.png
+    - assets/icons/Paint.png
+    - assets/icons/Reset.png
+    - assets/icons/Search.png
+    - assets/icons/Squared_Menu.png
+    - assets/icons/Vector.png
+    - assets/icons/Group_2976.png
+    - assets/icons/Group_2977.png
+    - assets/icons/Group_2979.png
+    - assets/icons/Rotate_Camera.png
+    - assets/icons/Hand Cursor.png
+    - assets/textures/metal_texture.png
+    - assets/textures/metall1.png
+    - assets/textures/metall2.png
+    - assets/textures/metall3.png
+    - assets/metall/Rectangle 863.png
+    - assets/metall/Rectangle 864.png
+    - assets/metall/Rectangle 865.png
+    - assets/textures/wood1.png
+    - assets/textures/wood2.png
+    - assets/textures/wood3.png

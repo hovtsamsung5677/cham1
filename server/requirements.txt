@@ -1,0 +1,16 @@
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+httpx>=0.25.0
+numpy>=1.24.3
+Pillow>=10.1.0
+# CPU-only версия torch для Docker (без CUDA, для экономии места и скорости сборки)
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch>=2.1.1
+torchvision>=0.16.1
+opencv-python-headless>=4.8.1.78
+timm>=0.9.2
+
+# MobileSAM из GitHub (совместимость с оригинальными весами)
+git+https://github.com/ChaoningZhang/MobileSAM.git

@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    restart: unless-stopped
+    depends_on:
+      - segment-server
+      - mobilesam
+    networks:
+      - segmentation-network
+
+  # MobileSAM Gradio Demo Service
+  mobilesam:
+    build:
+      context: ./MobileSAM
+      dockerfile: Dockerfile
+    image: mobilesam:latest
+    container_name: mobilesam
+    environment:
+      - DEVICE=cpu
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    volumes:
+      - ./MobileSAM/weights:/app/weights:ro
+    networks:
+      - segmentation-network
+
+  # FastAPI Segmentation Server
+  segment-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: segment-server:latest
+    container_name: segment-server
+    environment:
+      - PORT=8001
+      - DEVICE=cpu
+      - MOBILESAM_URL=http://mobilesam:7860/
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    volumes:
+      - ./MobileSAM/weights:/app/weights:ro
+    networks:
+      - segmentation-network
+    depends_on:
+      - mobilesam
+
+networks:
+  segmentation-network:
+    driver: bridge
