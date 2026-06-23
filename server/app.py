@@ -288,23 +288,10 @@ async def get_mask(
         best_idx = np.argmax(scores)
         best_mask = masks[best_idx]
 
-        # Create light transparent blue overlay on original image
-        mask_binary = (best_mask > 0.5).astype(np.uint8) * 255
-        mask_pil = Image.fromarray(mask_binary, mode='L')
-
-        overlay_np = np.zeros((h, w, 4), dtype=np.uint8)
-        overlay_np[:, :, 0] = 100
-        overlay_np[:, :, 1] = 149
-        overlay_np[:, :, 2] = 237
-        overlay_np[:, :, 3] = (mask_binary * 0.45).astype(np.uint8)
-        overlay = Image.fromarray(overlay_np, 'RGBA')
-
-        result = image_pil.convert('RGBA')
-        result = Image.alpha_composite(result, overlay)
-        result = result.convert('RGB')
-
+        mask_binary = (best_mask > 0.5).astype(np.uint8)
+        
         buf = BytesIO()
-        result.save(buf, format="PNG")
+        Image.fromarray(mask_binary, mode='L').save(buf, format="PNG")
         return Response(content=buf.getvalue(), media_type="image/png")
 
     except Exception as e:

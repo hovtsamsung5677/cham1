@@ -213,26 +213,31 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
   void _onTap(Offset position, BoxConstraints constraints) {
     final imagePos = _screenToImageCoordinates(position, constraints);
 
-    // If AI mask is shown and user taps on it, treat as exclusion tap
-    if (widget.aiMask != null &&
-        widget.aiMask!.isNotEmpty &&
-        widget.isSegmentationModeActive) {
-      final imgWidth = _imageSize.width.toInt();
-      final imgHeight = _imageSize.height.toInt();
-      final px = imagePos.dx.round().clamp(0, imgWidth - 1);
-      final py = imagePos.dy.round().clamp(0, imgHeight - 1);
-      final idx = py * imgWidth + px;
-      if (idx < widget.aiMask!.length && widget.aiMask![idx] == 1) {
-        // Tap is on the mask - exclude this point
-        if (widget.onAiMaskTap != null) {
+    // AI segmentation mode: first tap = positive point (create mask)
+    // Subsequent taps ON the mask = negative point (exclude from mask)
+    if (widget.isSegmentationModeActive) {
+      if (widget.aiMask != null &&
+          widget.aiMask!.isNotEmpty &&
+          widget.onAiMaskTap != null) {
+        final imgWidth = _imageSize.width.toInt();
+        final imgHeight = _imageSize.height.toInt();
+        final px = imagePos.dx.round().clamp(0, imgWidth - 1);
+        final py = imagePos.dy.round().clamp(0, imgHeight - 1);
+        final idx = py * imgWidth + px;
+        if (idx < widget.aiMask!.length && widget.aiMask![idx] == 1) {
           widget.onAiMaskTap!(imagePos);
           return;
         }
       }
+
+      if (widget.currentTool == SelectionTool.interactiveSegmentation &&
+          widget.onAutoSegmentTap != null) {
+        widget.onAutoSegmentTap!(imagePos);
+      }
+      return;
     }
 
     if (widget.currentTool == SelectionTool.interactiveSegmentation &&
-        widget.isSegmentationModeActive &&
         widget.onAutoSegmentTap != null) {
       widget.onAutoSegmentTap!(imagePos);
     }

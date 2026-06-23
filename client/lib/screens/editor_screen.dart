@@ -18,6 +18,32 @@ import 'camera_page.dart';
 import 'export_screen.dart';
 import 'projects_screen.dart';
 
+Future<Uint8List?> _normalizePngMaskToBinary(List<dynamic> args) async {
+  final Uint8List pngBytes = args[0] as Uint8List;
+  try {
+    final codec = await ui.instantiateImageCodec(pngBytes);
+    final frame = await codec.getNextFrame();
+    final byteData = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+    if (byteData == null) return null;
+    final pixels = byteData.buffer.asUint8List();
+    final width = frame.image.width;
+    final height = frame.image.height;
+    final result = Uint8List(width * height);
+    for (int i = 0; i < result.length; i++) {
+      final idx = i * 4;
+      if (idx + 3 < pixels.length && pixels[idx + 3] > 128) {
+        result[i] = 1;
+      } else {
+        result[i] = 0;
+      }
+    }
+    return result;
+  } catch (e) {
+    debugPrint('Error normalizing mask: $e');
+    return null;
+  }
+}
+
 // top-level function for compute isolate (must be a static/top-level function for compute)
 Future<Map<String, dynamic>?> _analyzeSelectionBrightnessStatic(List<dynamic> args) async {
   final Uint8List imageBytes = args[0] as Uint8List;
@@ -219,8 +245,7 @@ if (imageBytes == null) {
               },
             ),
           ),
-
-// Top toolbar — extracted to own widget to avoid canvas rebuilds
+          // Top toolbar — extracted to own widget to avoid canvas rebuilds
           _EditorTopToolbar(
             onBackToCamera: () => _onBackToCamera(context),
             onUndo: () => context.read<AppState>().undo(),
@@ -230,7 +255,6 @@ if (imageBytes == null) {
               AppTransitions.fadeRoute(const ProjectsScreen()),
             ),
           ),
-
           // Bottom panel — state method for direct access to stateful FAB
           _buildBottomPanel(),
         ],
@@ -319,96 +343,102 @@ if (imageBytes == null) {
   Widget _buildAutoSegmentationFAB() {
     final bool isActive = _isSegmentationModeActive;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_currentAiMask != null)
-          GestureDetector(
-            onTap: () {
-              setState(() {
-                _currentAiMask = null;
-                _segPositivePoints.clear();
-                _segNegativePoints.clear();
-                appState.setAiMask(null);
-              });
-            },
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: const BoxDecoration(
-                color: Color(0xFFF44336),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.close, color: Colors.white, size: 20),
-            ),
-          ),
-        const SizedBox(height: 8),
-        AnimatedBuilder(
-          animation: _fabPulseAnimation,
-          builder: (context, child) {
-            return Transform.scale(
-              scale: _fabPulseAnimation.value,
-              child: child,
-            );
-          },
-          child: GestureDetector(
-            onTap: () {
-              setState(() {
-                _isSegmentationModeActive = !_isSegmentationModeActive;
-                if (!_isSegmentationModeActive) {
+    return SizedBox(
+      width: 80,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_currentAiMask != null) ...[
+            GestureDetector(
+              onTap: () {
+                setState(() {
                   _currentAiMask = null;
                   _segPositivePoints.clear();
                   _segNegativePoints.clear();
-                  appState.setAiMask(null);
-                }
-              });
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOutBack,
-              width: 68,
-              height: 68,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isActive ? const Color(0xFFFFC107) : Colors.grey,
-                boxShadow: isActive
-                    ? [
-                        BoxShadow(
-                          color: const Color(0xFFFFC107).withValues(alpha: 0.5),
-                          blurRadius: 20,
-                          spreadRadius: 4,
-                        ),
-                      ]
-                    : [],
+                  context.read<AppState>().setAiMask(null);
+                });
+              },
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF44336),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 22),
               ),
-              child: TweenAnimationBuilder<double>(
-                duration: const Duration(milliseconds: 200),
-                tween: Tween(begin: 0.0, end: 1.0),
-                curve: Curves.easeOut,
-                builder: (context, value, child) {
-                  return Opacity(opacity: value, child: child);
-                },
-                child: Center(
-                  child: Image.asset(
-                    'assets/icons/Hand Cursor.png',
-                    width: 32,
-                    height: 32,
-                    color: isActive ? Colors.white : Colors.white70,
+            ),
+            const SizedBox(height: 10),
+          ],
+          AnimatedBuilder(
+            animation: _fabPulseAnimation,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: _fabPulseAnimation.value,
+                child: child,
+              );
+            },
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _isSegmentationModeActive = !_isSegmentationModeActive;
+                  if (!_isSegmentationModeActive) {
+                    _currentAiMask = null;
+                    _segPositivePoints.clear();
+                    _segNegativePoints.clear();
+                    context.read<AppState>().setAiMask(null);
+                  }
+                });
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutBack,
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isActive ? const Color(0xFFFFC107) : Colors.grey,
+                  boxShadow: isActive
+                      ? [
+                          BoxShadow(
+                            color: const Color(0xFFFFC107).withValues(alpha: 0.5),
+                            blurRadius: 20,
+                            spreadRadius: 4,
+                          ),
+                        ]
+                      : [
+                          BoxShadow(
+                            color: Colors.transparent,
+                            blurRadius: 0,
+                            spreadRadius: 0,
+                          ),
+                        ],
+                ),
+                child: TweenAnimationBuilder<double>(
+                  duration: const Duration(milliseconds: 200),
+                  tween: Tween<double>(begin: 0.0, end: 1.0),
+                  curve: Curves.easeOut,
+                  builder: (context, value, child) {
+                    return Opacity(opacity: value, child: child);
+                  },
+                  child: Center(
+                    child: Image.asset(
+                      'assets/icons/Hand Cursor.png',
+                      width: 32,
+                      height: 32,
+                      color: isActive ? Colors.white : Colors.white70,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SEGMENTATION
-  // ═══════════════════════════════════════════════════════════════════════════
-  /// Обрабатывает первый клик - добавляет положительную точку и показывает маску
-  Future<void> _handleAutoSegmentation(Offset imagePosition) async {
+    Future<void> _handleAutoSegmentation(Offset imagePosition) async {
     final appState = context.read<AppState>();
 
     if (appState.isLoading) return;
@@ -438,10 +468,13 @@ if (imageBytes == null) {
       );
 
       if (mounted && maskBytes != null) {
-        setState(() {
-          _currentAiMask = maskBytes;
-        });
-        appState.setAiMask(maskBytes);
+        final normalizedMask = await compute(_normalizePngMaskToBinary, [maskBytes]);
+        if (normalizedMask != null) {
+          setState(() {
+            _currentAiMask = normalizedMask;
+          });
+          appState.setAiMask(normalizedMask);
+        }
       }
     } catch (e) {
       debugPrint('Ошибка сегментации: $e');
@@ -450,7 +483,6 @@ if (imageBytes == null) {
     }
   }
 
-  /// Обрабатывает тап по маске - добавляет отрицательную точку (исключает область)
   Future<void> _handleAiMaskExclusionTap(Offset imagePosition) async {
     final appState = context.read<AppState>();
 
@@ -480,10 +512,13 @@ if (imageBytes == null) {
       );
 
       if (mounted && maskBytes != null) {
-        setState(() {
-          _currentAiMask = maskBytes;
-        });
-        appState.setAiMask(maskBytes);
+        final normalizedMask = await compute(_normalizePngMaskToBinary, [maskBytes]);
+        if (normalizedMask != null) {
+          setState(() {
+            _currentAiMask = normalizedMask;
+          });
+          appState.setAiMask(normalizedMask);
+        }
       }
     } catch (e) {
       debugPrint('Ошибка обновления маски: $e');
@@ -527,7 +562,7 @@ if (imageBytes == null) {
         _currentAiMask = null;
         _segPositivePoints.clear();
         _segNegativePoints.clear();
-        appState.setAiMask(null);
+        context.read<AppState>().setAiMask(null);
         if (mounted) {
           Navigator.push(
             context,

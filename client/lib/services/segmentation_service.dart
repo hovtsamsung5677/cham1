@@ -29,6 +29,52 @@ class SegmentationService {
       return false;
     }
   }
+  Future<Uint8List?> getMask({
+    required Uint8List imageBytes,
+    required Offset positivePoint,
+    required List<Offset>? negativePoints,
+    required int imageWidth,
+    required int imageHeight,
+  }) async {
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('${serverUrl}/get-mask'),
+      );
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'image',
+          imageBytes,
+          filename: 'image.jpg',
+          contentType: MediaType('image', 'jpeg'),
+        ),
+      );
+      request.fields['point_x'] = positivePoint.dx.round().toString();
+      request.fields['point_y'] = positivePoint.dy.round().toString();
+
+      if (negativePoints != null && negativePoints.isNotEmpty) {
+        final negX = negativePoints.map((p) => p.dx.round().toString()).join(',');
+        final negY = negativePoints.map((p) => p.dy.round().toString()).join(',');
+        request.fields['negative_point_x'] = negX;
+        request.fields['negative_point_y'] = negY;
+      }
+
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 60),
+      );
+      final response = await http.Response.fromStream(streamedResponse);
+      debugPrint('Mask response: status=${response.statusCode}, bytes=${response.bodyBytes.length}');
+
+      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+        return Uint8List.fromList(response.bodyBytes);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Mask error: $e');
+      return null;
+    }
+  }
+
 
   Future<Uint8List?> segmentObject({
     required Uint8List imageBytes,
