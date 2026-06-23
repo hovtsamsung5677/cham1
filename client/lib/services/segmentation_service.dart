@@ -11,13 +11,13 @@ class SegmentationService {
   final http.Client _client;
 
   SegmentationService({String? serverUrl, http.Client? client})
-    : serverUrl =
-          serverUrl ??
-          const String.fromEnvironment(
-            'SERVER_URL',
-            defaultValue: 'http://212.41.29.205',
-          ),
-      _client = client ?? http.Client();
+      : serverUrl =
+            serverUrl ??
+            const String.fromEnvironment(
+              'SERVER_URL',
+              defaultValue: 'http://212.41.29.205',
+            ),
+        _client = client ?? http.Client();
 
   Future<bool> isServerAvailable() async {
     try {
@@ -40,6 +40,8 @@ class SegmentationService {
     double strength = 1.0,
   }) async {
     try {
+      // Get RGB components from ARGB (Flutter Color.value format is 0xAARRGGBB)
+      final int rgbValue = colorHex & 0xFFFFFF;
       final request = http.MultipartRequest(
         'POST',
         Uri.parse('$serverUrl/ai-recolor'),
@@ -55,7 +57,7 @@ class SegmentationService {
       request.fields['point_x'] = imagePosition.dx.round().toString();
       request.fields['point_y'] = imagePosition.dy.round().toString();
       request.fields['material'] = material;
-      request.fields['color_hex'] = colorHex.toString();
+      request.fields['color_hex'] = '0x${rgbValue.toRadixString(16).padLeft(6, '0')}';
       request.fields['strength'] = strength.toString();
 
       final streamedResponse = await request.send().timeout(
