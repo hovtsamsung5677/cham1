@@ -61,13 +61,15 @@ class SegmentationService {
       request.fields['strength'] = strength.toString();
 
       final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 15),
+        const Duration(seconds: 60),
       );
       final response = await http.Response.fromStream(streamedResponse);
-      
-      if (response.statusCode == 200) {
+      debugPrint('AI recolor response: status=${response.statusCode}, bytes=${response.bodyBytes.length}');
+
+      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
         return Uint8List.fromList(response.bodyBytes);
       }
+      debugPrint('AI recolor empty/invalid response: status=${response.statusCode}');
       return null;
     } catch (e) {
       debugPrint('AI recolor error: $e');

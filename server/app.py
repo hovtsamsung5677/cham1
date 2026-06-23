@@ -191,6 +191,12 @@ async def ai_recolor(
         # 1. Загрузка изображения
         img_bytes = await image.read()
         image_pil = Image.open(BytesIO(img_bytes)).convert("RGB")
+        w, h = image_pil.size
+        logger.info(f"   Original dimensions: {w}x{h}")
+        max_size = 1024
+        if w > max_size or h > max_size:
+            image_pil.thumbnail((max_size, max_size))
+            logger.info(f"   Resized to: {image_pil.size}")
         image_np = np.array(image_pil)
 
         # 2. Преобразование color_hex (поддержка разных форматов)
@@ -226,6 +232,7 @@ async def ai_recolor(
         color_name = get_color_hex_name(rgb_hex)
         prompt_template = MATERIAL_PROMPTS.get(material, MATERIAL_PROMPTS["default"])
         prompt = prompt_template.format(color=color_name)
+        prompt = f"high quality photo, {prompt}, change the color to {color_name}, keep all textures and details, sharp, photorealistic"
         negative_prompt = "blurry, distorted, original colors, low quality, bad anatomy"
 
         # 5. Создание бинарной маски PIL (mode='L')

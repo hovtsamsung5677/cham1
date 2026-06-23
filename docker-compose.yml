@@ -5,6 +5,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
@@ -21,6 +22,9 @@ services:
     image: segment-ai:latest
     container_name: segment-ai
     restart: unless-stopped
+    ports:
+      - "8001:8001"
+
 
     # ---------- ОПТИМИЗАЦИЯ ПАМЯТИ ----------
     shm_size: 16g               # Разделяемая память для PyTorch/NCCL
