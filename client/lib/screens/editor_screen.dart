@@ -18,6 +18,101 @@ import 'camera_page.dart';
 import 'export_screen.dart';
 import 'projects_screen.dart';
 
+// top-level function for compute isolate (must be a static/top-level function for compute)
+Future<Map<String, dynamic>?> _analyzeSelectionBrightnessStatic(List<dynamic> args) async {
+  final Uint8List imageBytes = args[0] as Uint8List;
+  final Uint8List analysisMask = args[1] as Uint8List;
+
+  if (imageBytes == null || analysisMask.isEmpty) {
+    return null;
+  }
+
+  try {
+    final codec = await ui.instantiateImageCodec(imageBytes);
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    final width = image.width;
+    final height = image.height;
+
+    if (analysisMask.length != width * height) {
+      return null;
+    }
+
+    final byteData = await image.toByteData(
+      format: ui.ImageByteFormat.png,
+    );
+    if (byteData == null) return null;
+
+    final pixels = byteData.buffer.asUint8List();
+
+    int darkPixelCount = 0;
+    int brightPixelCount = 0;
+    int mediumPixelCount = 0;
+    int totalSelectedPixels = 0;
+
+    double totalValue = 0;
+    double totalRed = 0;
+    double totalGreen = 0;
+    double totalBlue = 0;
+
+    for (int i = 0; i < analysisMask.length; i++) {
+      if (analysisMask[i] == 1) {
+        final pixelIndex = i * 4;
+        if (pixelIndex + 3 >= pixels.length) continue;
+
+        final r = pixels[pixelIndex];
+        final g = pixels[pixelIndex + 1];
+        final b = pixels[pixelIndex + 2];
+
+        final hsv = ImageProcessingService.rgbToHsv(r, g, b);
+        final value = hsv[2];
+
+        totalValue += value;
+        totalRed += r;
+        totalGreen += g;
+        totalBlue += b;
+        totalSelectedPixels++;
+
+        if (value < ImageProcessingService.darkThreshold) {
+          darkPixelCount++;
+        } else if (value > ImageProcessingService.brightThreshold) {
+          brightPixelCount++;
+        } else {
+          mediumPixelCount++;
+        }
+      }
+    }
+
+    if (totalSelectedPixels == 0) return null;
+
+    final avgValue = totalValue / totalSelectedPixels;
+    final meanR = (totalRed / totalSelectedPixels).round();
+    final meanG = (totalGreen / totalSelectedPixels).round();
+    final meanB = (totalBlue / totalSelectedPixels).round();
+
+    String dominantType;
+    if (darkPixelCount > brightPixelCount && darkPixelCount > mediumPixelCount) {
+      dominantType = 'dark';
+    } else if (brightPixelCount > darkPixelCount && brightPixelCount > mediumPixelCount) {
+      dominantType = 'bright';
+    } else if (mediumPixelCount > darkPixelCount && mediumPixelCount > brightPixelCount) {
+      dominantType = 'medium';
+    } else {
+      dominantType = 'mixed';
+    }
+
+    return {
+      'dominantType': dominantType,
+      'meanR': meanR,
+      'meanG': meanG,
+      'meanB': meanB,
+      'colorThreshold': 100,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key});
 
@@ -76,151 +171,10 @@ class _EditorScreenState extends State<EditorScreen>
                 final previewBytes = appState.previewImage;
                 final displayBytes = previewBytes ?? imageBytes;
                 
-                if (imageBytes == null) {
+if (imageBytes == null) {
                   return const _EmptyCanvasPlaceholder();
-}
+                }
 
-static Future<Map<String, dynamic>?> _analyzeSelectionBrightnessStatic(List<dynamic> args) async {
-  final Uint8List imageBytes = args[0] as Uint8List;
-  final Uint8List analysisMask = args[1] as Uint8List;
-
-  if (imageBytes == null || analysisMask.isEmpty) {
-    debugPrint('[BrightnessAnalysis] Нет выделенной области для анализа');
-    return null;
-  }
-
-  try {
-    // Декодируем изображение
-    final codec = await ui.instantiateImageCodec(imageBytes);
-    final frame = await codec.getNextFrame();
-    final image = frame.image;
-    final width = image.width;
-    final height = image.height;
-
-    if (analysisMask.length != width * height) {
-      debugPrint(
-        '[BrightnessAnalysis] Размер маски не совпадает с размером изображения',
-      );
-      return null;
-    }
-
-    // Получаем байты изображения для анализа
-    final byteData = await image.toByteData(
-      format: ui.ImageByteFormat.rawRgba,
-    );
-    if (byteData == null) {
-      debugPrint(
-        '[BrightnessAnalysis] Не удалось получить данные изображения',
-      );
-      return null;
-    }
-
-    final pixels = byteData.buffer.asUint8List();
-
-    // Статистика яркости и цвета
-    int darkPixelCount = 0;
-    int brightPixelCount = 0;
-    int mediumPixelCount = 0;
-    int totalSelectedPixels = 0;
-
-    double totalValue = 0;
-    double totalRed = 0;
-    double totalGreen = 0;
-    double totalBlue = 0;
-
-    // Проходим по всем пикселям маски
-    for (int i = 0; i < analysisMask.length; i++) {
-      if (analysisMask[i] == 1) {
-        final pixelIndex = i * 4;
-        if (pixelIndex + 3 >= pixels.length) continue;
-
-        final r = pixels[pixelIndex];
-        final g = pixels[pixelIndex + 1];
-        final b = pixels[pixelIndex + 2];
-
-        // Конвертируем в HSV для получения яркости (Value)
-        final hsv = ImageProcessingService.rgbToHsv(r, g, b);
-        final value = hsv[2]; // 0.0 - 1.0
-
-        totalValue += value;
-        totalRed += r;
-        totalGreen += g;
-        totalBlue += b;
-        totalSelectedPixels++;
-
-        // Классифицируем пиксель
-        if (value < ImageProcessingService.darkThreshold) {
-          darkPixelCount++;
-        } else if (value > ImageProcessingService.brightThreshold) {
-          brightPixelCount++;
-        } else {
-          mediumPixelCount++;
-        }
-      }
-    }
-
-    if (totalSelectedPixels == 0) {
-      debugPrint('[BrightnessAnalysis] Нет выделенных пикселей');
-      return null;
-    }
-
-    // Вычисляем средние значения
-    final avgValue = totalValue / totalSelectedPixels;
-    final meanR = (totalRed / totalSelectedPixels).round();
-    final meanG = (totalGreen / totalSelectedPixels).round();
-    final meanB = (totalBlue / totalSelectedPixels).round();
-
-    final darkPercent = (darkPixelCount * 100 / totalSelectedPixels).round();
-    final brightPercent = (brightPixelCount * 100 / totalSelectedPixels)
-        .round();
-    final mediumPercent = (mediumPixelCount * 100 / totalSelectedPixels)
-        .round();
-
-    // Определяем доминирующий тип пикселей
-    String dominantType;
-    if (darkPixelCount > brightPixelCount &&
-        darkPixelCount > mediumPixelCount) {
-      dominantType = 'dark';
-    } else if (brightPixelCount > darkPixelCount &&
-        brightPixelCount > mediumPixelCount) {
-      dominantType = 'bright';
-    } else if (mediumPixelCount > darkPixelCount &&
-        mediumPixelCount > brightPixelCount) {
-      dominantType = 'medium';
-    } else {
-      dominantType = 'mixed';
-    }
-
-    // Выводим подробный отчёт
-    print('\n' + '=' * 60);
-    print('  АНАЛИЗ ВЫДЕЛЕННОЙ ОБЛАСТИ');
-    print('=' * 60);
-    print('Доминирующий тип: $dominantType');
-    print('Средняя яркость: ${(avgValue * 100).toStringAsFixed(1)}%');
-    print(
-      'Распределение: тёмные=${darkPercent}%, средние=${mediumPercent}%, яркие=${brightPercent}%',
-    );
-    print('Всего пикселей: $totalSelectedPixels');
-    print('=' * 60);
-    print('');
-
-    // Порог цветового расстояния для фильтрации (в RGB пространстве 0-255)
-    // Установлено в 100 - баланс между скоростью и точностью
-    // Позволяет обрабатывать маску быстро, отфильтровывая сильно отличающиеся пиксели
-    final colorThreshold = 100;
-
-    return {
-      'dominantType': dominantType,
-      'meanR': meanR,
-      'meanG': meanG,
-      'meanB': meanB,
-      'colorThreshold': colorThreshold,
-    };
-  } catch (e) {
-    debugPrint('[BrightnessAnalysis] Ошибка анализа: $e');
-    return null;
-  }
-}
                 return RepaintBoundary(
                   child: MouseRegion(
                     cursor: SystemMouseCursors.basic,

@@ -114,7 +114,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  static const Uint8List _emptyMask = Uint8List(0);
+  // Selected material type for recoloring
+  String _selectedMaterial = 'wood';
+  String get selectedMaterial => _selectedMaterial;
+
+  void setSelectedMaterial(String material) {
+    _selectedMaterial = material;
+    notifyListeners();
+  }
+
+  final Uint8List _emptyMask = Uint8List(0);
   Timer? _debounce;
   static const Duration _debounceDuration = Duration(milliseconds: 300);
 

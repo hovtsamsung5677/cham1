@@ -21,7 +21,11 @@ services:
     image: segment-ai:latest
     container_name: segment-ai
     environment:
-      - HF_HOME=/root/.cache/huggingface   # указываем путь к кешу
+      - PORT=8001
+      - TORCH_HOME=/app/models
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    env_file:
+      - .env
     restart: unless-stopped
     deploy:
       resources:
@@ -31,9 +35,8 @@ services:
               count: 1
               capabilities: [gpu]
     volumes:
-      - ./hf_cache:/root/.cache/huggingface   # монтируем скачанные модели
-      # опционально: для быстрой правки кода без пересборки:
-      # - ./server/app.py:/app/app.py
+      - ./server/models:/app/models
+      - ./hf_cache:/root/.cache/huggingface
     networks:
       - segmentation-network
 

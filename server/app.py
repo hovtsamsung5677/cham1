@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
 # --------------------- Lifespan для загрузки и выгрузки моделей ---------------------
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _predictor, _pipe, _device
@@ -19,7 +21,8 @@ async def lifespan(app: FastAPI):
     # Загрузка SAM-2
     try:
         from sam2.sam2_image_predictor import SAM2ImagePredictor
-        _predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2.1-hiera-large")
+        _predictor = SAM2ImagePredictor.from_pretrained(
+            "facebook/sam2.1-hiera-large")
         _predictor.model = _predictor.model.to(_device).eval()
         print("SAM-2 Hiera-L loaded")
     except Exception as e:
@@ -37,7 +40,8 @@ async def lifespan(app: FastAPI):
         _pipe = StableDiffusionControlNetInpaintPipeline.from_pretrained(
             "runwayml/stable-diffusion-v1-5",
             controlnet=controlnet,
-            torch_dtype=torch.float32
+            torch_dtype=torch.float32,
+            safety_checker=None
         ).to(_device)
         _pipe.enable_xformers_memory_efficient_attention()
         _pipe.enable_model_cpu_offload()
@@ -97,14 +101,21 @@ def get_color_hex_name(hex_color: int) -> str:
     b = hex_color & 0xFF
     h, s, v = rgb_to_hsv(r/255, g/255, b/255)
     if s < 0.15:
-        if v > 0.8: return "white"
-        if v < 0.2: return "black"
+        if v > 0.8:
+            return "white"
+        if v < 0.2:
+            return "black"
         return "lightgray"
-    if h < 0.1: return "red"
-    if h < 0.2: return "yellow"
-    if h < 0.4: return "green"
-    if h < 0.6: return "blue"
-    if h < 0.8: return "purple"
+    if h < 0.1:
+        return "red"
+    if h < 0.2:
+        return "yellow"
+    if h < 0.4:
+        return "green"
+    if h < 0.6:
+        return "blue"
+    if h < 0.8:
+        return "purple"
     return "red"
 
 
@@ -118,7 +129,8 @@ def make_inpaint_condition(image, image_mask):
     image_mask = np.array(image_mask.convert("L")).astype(np.float32) / 255.0
 
     # Маска должна быть такого же размера
-    assert image.shape[0:2] == image_mask.shape[0:2], "Image and mask must have the same size"
+    assert image.shape[0:2] == image_mask.shape[0:
+                                                2], "Image and mask must have the same size"
 
     # Закрашиваем область маски черным
     image[image_mask > 0.5] = -1.0
@@ -172,11 +184,14 @@ async def ai_recolor(
 
         # 4. Формирование промпта
         color_name = get_color_hex_name(color_hex_int)
-        prompt_template = MATERIAL_PROMPTS.get(material, "smooth surface, {color}")
-        prompt = prompt_template.format(color=color_name) + ", high quality, photorealistic"
+        prompt_template = MATERIAL_PROMPTS.get(
+            material, "smooth surface, {color}")
+        prompt = prompt_template.format(
+            color=color_name) + ", high quality, photorealistic"
 
         # 5. Создание маски PIL (mode='L')
-        mask_pil = Image.fromarray((best_mask * 255).astype(np.uint8), mode='L')
+        mask_pil = Image.fromarray(
+            (best_mask * 255).astype(np.uint8), mode='L')
 
         # 6. Подготовка управляющего изображения для ControlNet
         control_image = make_inpaint_condition(image_pil, mask_pil)
