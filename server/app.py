@@ -77,7 +77,7 @@ async def load_models():
     # SAM-2 Hiera-L
     try:
         from sam2.sam2_image_predictor import SAM2ImagePredictor
-        _predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2-hiera-l")
+        _predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2.1-hiera-large")
         _predictor.model = _predictor.model.to(_device).eval()
         if _device == "cuda":
             _predictor.model = _predictor.model.half()
@@ -90,7 +90,7 @@ async def load_models():
         from diffusers import StableDiffusionControlNetPipeline, ControlNetModel
         
         controlnet = ControlNetModel.from_pretrained(
-            "lllyasviel/control_v11f1p_sd15_tile",
+            "lllyasviel/control_v11f1p_sd15_depth",
             torch_dtype=torch.float16 if _device == "cuda" else torch.float32
         )
         

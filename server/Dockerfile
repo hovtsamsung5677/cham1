@@ -19,7 +19,9 @@ RUN pip3 install -r requirements.ai.txt --no-cache-dir
 COPY app.py .
 
 # Cache models on first build
-RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/sam2-hiera-l')" 2>/dev/null || true
+RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/sam2.1-hiera-large')" 2>/dev/null || true
+RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('lllyasviel/control_v11f1p_sd15_depth')" 2>/dev/null || true
+RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('runwayml/stable-diffusion-inpainting')" 2>/dev/null || true
 
 EXPOSE 8001
 
