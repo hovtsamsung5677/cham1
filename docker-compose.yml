@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
     container_name: nginx-proxy
@@ -13,54 +12,31 @@ services:
       - ./nginx/ssl:/etc/nginx/ssl:ro
     restart: unless-stopped
     depends_on:
-      - segment-server
-      - mobilesam
+      - ai-server
     networks:
       - segmentation-network
 
-  # MobileSAM Gradio Demo Service
-  mobilesam:
-    build:
-      context: ./MobileSAM
-      dockerfile: Dockerfile
-    image: mobilesam:latest
-    container_name: mobilesam
-    environment:
-      - DEVICE=cpu
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7860/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    volumes:
-      - ./MobileSAM/weights:/app/weights:ro
-    networks:
-      - segmentation-network
-
-  # FastAPI Segmentation Server
-  segment-server:
+  ai-server:
     build:
       context: ./server
       dockerfile: Dockerfile
-    image: segment-server:latest
-    container_name: segment-server
+    image: segment-ai:latest
+    container_name: segment-ai
     environment:
       - PORT=8001
-      - DEVICE=cpu
-      - MOBILESAM_URL=http://mobilesam:7860/
+      - TORCH_HOME=/app/models
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     volumes:
-      - ./MobileSAM/weights:/app/weights:ro
+      - ./server/models:/app/models
     networks:
       - segmentation-network
-    depends_on:
-      - mobilesam
 
 networks:
   segmentation-network:
