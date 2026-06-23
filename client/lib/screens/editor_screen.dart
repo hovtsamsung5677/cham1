@@ -10,6 +10,7 @@ import '../models/selection_tool.dart';
 import '../widgets/selection_canvas.dart';
 import '../services/image_processing_service.dart';
 import '../services/segmentation_service.dart';
+import 'package:image/image.dart' as img;
 import 'color_picker_screen.dart';
 import 'color_palette_screen.dart';
 import '../utils/transitions.dart';
@@ -77,7 +78,149 @@ class _EditorScreenState extends State<EditorScreen>
                 
                 if (imageBytes == null) {
                   return const _EmptyCanvasPlaceholder();
-                }
+}
+
+static Future<Map<String, dynamic>?> _analyzeSelectionBrightnessStatic(List<dynamic> args) async {
+  final Uint8List imageBytes = args[0] as Uint8List;
+  final Uint8List analysisMask = args[1] as Uint8List;
+
+  if (imageBytes == null || analysisMask.isEmpty) {
+    debugPrint('[BrightnessAnalysis] Нет выделенной области для анализа');
+    return null;
+  }
+
+  try {
+    // Декодируем изображение
+    final codec = await ui.instantiateImageCodec(imageBytes);
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    final width = image.width;
+    final height = image.height;
+
+    if (analysisMask.length != width * height) {
+      debugPrint(
+        '[BrightnessAnalysis] Размер маски не совпадает с размером изображения',
+      );
+      return null;
+    }
+
+    // Получаем байты изображения для анализа
+    final byteData = await image.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    );
+    if (byteData == null) {
+      debugPrint(
+        '[BrightnessAnalysis] Не удалось получить данные изображения',
+      );
+      return null;
+    }
+
+    final pixels = byteData.buffer.asUint8List();
+
+    // Статистика яркости и цвета
+    int darkPixelCount = 0;
+    int brightPixelCount = 0;
+    int mediumPixelCount = 0;
+    int totalSelectedPixels = 0;
+
+    double totalValue = 0;
+    double totalRed = 0;
+    double totalGreen = 0;
+    double totalBlue = 0;
+
+    // Проходим по всем пикселям маски
+    for (int i = 0; i < analysisMask.length; i++) {
+      if (analysisMask[i] == 1) {
+        final pixelIndex = i * 4;
+        if (pixelIndex + 3 >= pixels.length) continue;
+
+        final r = pixels[pixelIndex];
+        final g = pixels[pixelIndex + 1];
+        final b = pixels[pixelIndex + 2];
+
+        // Конвертируем в HSV для получения яркости (Value)
+        final hsv = ImageProcessingService.rgbToHsv(r, g, b);
+        final value = hsv[2]; // 0.0 - 1.0
+
+        totalValue += value;
+        totalRed += r;
+        totalGreen += g;
+        totalBlue += b;
+        totalSelectedPixels++;
+
+        // Классифицируем пиксель
+        if (value < ImageProcessingService.darkThreshold) {
+          darkPixelCount++;
+        } else if (value > ImageProcessingService.brightThreshold) {
+          brightPixelCount++;
+        } else {
+          mediumPixelCount++;
+        }
+      }
+    }
+
+    if (totalSelectedPixels == 0) {
+      debugPrint('[BrightnessAnalysis] Нет выделенных пикселей');
+      return null;
+    }
+
+    // Вычисляем средние значения
+    final avgValue = totalValue / totalSelectedPixels;
+    final meanR = (totalRed / totalSelectedPixels).round();
+    final meanG = (totalGreen / totalSelectedPixels).round();
+    final meanB = (totalBlue / totalSelectedPixels).round();
+
+    final darkPercent = (darkPixelCount * 100 / totalSelectedPixels).round();
+    final brightPercent = (brightPixelCount * 100 / totalSelectedPixels)
+        .round();
+    final mediumPercent = (mediumPixelCount * 100 / totalSelectedPixels)
+        .round();
+
+    // Определяем доминирующий тип пикселей
+    String dominantType;
+    if (darkPixelCount > brightPixelCount &&
+        darkPixelCount > mediumPixelCount) {
+      dominantType = 'dark';
+    } else if (brightPixelCount > darkPixelCount &&
+        brightPixelCount > mediumPixelCount) {
+      dominantType = 'bright';
+    } else if (mediumPixelCount > darkPixelCount &&
+        mediumPixelCount > brightPixelCount) {
+      dominantType = 'medium';
+    } else {
+      dominantType = 'mixed';
+    }
+
+    // Выводим подробный отчёт
+    print('\n' + '=' * 60);
+    print('  АНАЛИЗ ВЫДЕЛЕННОЙ ОБЛАСТИ');
+    print('=' * 60);
+    print('Доминирующий тип: $dominantType');
+    print('Средняя яркость: ${(avgValue * 100).toStringAsFixed(1)}%');
+    print(
+      'Распределение: тёмные=${darkPercent}%, средние=${mediumPercent}%, яркие=${brightPercent}%',
+    );
+    print('Всего пикселей: $totalSelectedPixels');
+    print('=' * 60);
+    print('');
+
+    // Порог цветового расстояния для фильтрации (в RGB пространстве 0-255)
+    // Установлено в 100 - баланс между скоростью и точностью
+    // Позволяет обрабатывать маску быстро, отфильтровывая сильно отличающиеся пиксели
+    final colorThreshold = 100;
+
+    return {
+      'dominantType': dominantType,
+      'meanR': meanR,
+      'meanG': meanG,
+      'meanB': meanB,
+      'colorThreshold': colorThreshold,
+    };
+  } catch (e) {
+    debugPrint('[BrightnessAnalysis] Ошибка анализа: $e');
+    return null;
+  }
+}
                 return RepaintBoundary(
                   child: MouseRegion(
                     cursor: SystemMouseCursors.basic,
@@ -263,80 +406,47 @@ class _EditorScreenState extends State<EditorScreen>
   // SEGMENTATION
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Обрабатывает клик для авто-сегментации объекта.
+  /// Обрабатывает клик для авто-сегментации объекта с AI-перекраской.
   Future<void> _handleAutoSegmentation(Offset imagePosition) async {
     final appState = context.read<AppState>();
 
-    // Защита от повторных вызовов во время обработки
     if (appState.isLoading) {
       return;
     }
 
-    // Устанавливаем загрузку сразу, до любых ожиданий
     appState.setLoading(true);
 
     try {
       final imageBytes = appState.capturedImage;
       if (imageBytes == null) return;
 
-      // Получаем размеры изображения из байтов
-      final completer = Completer<ui.Image>();
-      ui.decodeImageFromList(imageBytes, completer.complete);
-      final ui.Image image = await completer.future;
-      final int imageWidth = image.width;
-      final int imageHeight = image.height;
+      final codec = await ui.instantiateImageCodec(imageBytes);
+      final frame = await codec.getNextFrame();
+      final int imageWidth = frame.image.width;
+      final int imageHeight = frame.image.height;
 
-      // Выполняем сегментацию через сервис
-      final mask = await _segmentationService.segmentObject(
+      // AI recolor - получаем готовую картинку
+      final resultBytes = await _segmentationService.segmentObject(
         imageBytes: imageBytes,
         imagePosition: imagePosition,
         imageWidth: imageWidth,
         imageHeight: imageHeight,
+        material: appState.selectedMaterial,
+        colorHex: appState.selectedColor.value,
+        strength: 1.0,
       );
 
-      if (mounted && mask != null) {
-        // Get current mask for additive selection
-        final currentMask = appState.selectionMask;
-
-        // Expand mask to capture блики and similar-color boundary pixels
-        final expandedMask = ImageProcessingService.expandSelectionWithTolerance(
-          imageBytes: imageBytes,
-          width: imageWidth,
-          height: imageHeight,
-          currentMask: mask,
-          tolerance: 25.0 / 255.0,
-        );
-
-        // Merge with existing mask (additive mode)
-        Uint8List finalMask;
-        if (currentMask.length != expandedMask.length) {
-          debugPrint(
-            'Warning: mask size mismatch current=${currentMask.length} vs expanded=${expandedMask.length}. Using expanded only.',
-          );
-          finalMask = expandedMask;
-        } else {
-          final combinedMask = Uint8List(expandedMask.length);
-          for (int i = 0; i < expandedMask.length; i++) {
-            combinedMask[i] = (expandedMask[i] == 1 || currentMask[i] == 1)
-                ? 1
-                : 0;
-          }
-          finalMask = combinedMask;
-        }
-
-        appState.setSelectionMask(finalMask);
-
-        if (mounted) {
-          _showSuccessSnackBar(context, 'Объект выделен');
-        }
+      if (mounted && resultBytes != null) {
+        appState.setPreviewImage(resultBytes);
+        if (!appState.isPreviewMode) appState.togglePreviewMode();
+        _showSuccessSnackBar(context, 'Объект перекрашен');
       } else if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Ошибка сегментации')));
+        ).showSnackBar(const SnackBar(content: Text('Ошибка AI перекраски')));
       }
     } catch (e) {
-      // Ошибки логируем в консоль, не показываем SnackBar чтобы не спамить уведомления
-      debugPrint('Ошибка сегментации: $e');
+      debugPrint('Ошибка AI: $e');
     } finally {
       appState.setLoading(false);
     }
@@ -381,145 +491,23 @@ class _EditorScreenState extends State<EditorScreen>
   ///   - 'dominantType': 'dark', 'bright', 'medium', 'mixed'
   ///   - 'meanR', 'meanG', 'meanB': средний цвет
   ///   - 'colorThreshold': порог цветового расстояния для фильтрации
-  Future<Map<String, dynamic>?> _analyzeSelectionBrightness({
-    Uint8List? mask,
-  }) async {
+  Future<Map<String, dynamic>?> _analyzeSelectionBrightness({Uint8List? mask}) async {
     final appState = context.read<AppState>();
     final imageBytes = appState.capturedImage;
     final analysisMask = mask ?? appState.selectionMask;
-
     if (imageBytes == null || analysisMask.isEmpty) {
       debugPrint('[BrightnessAnalysis] Нет выделенной области для анализа');
       return null;
     }
-
     try {
-      // Декодируем изображение
-      final codec = await ui.instantiateImageCodec(imageBytes);
-      final frame = await codec.getNextFrame();
-      final image = frame.image;
-      final width = image.width;
-      final height = image.height;
-
-      if (analysisMask.length != width * height) {
-        debugPrint(
-          '[BrightnessAnalysis] Размер маски не совпадает с размером изображения',
-        );
-        return null;
-      }
-
-      // Получаем байты изображения для анализа
-      final byteData = await image.toByteData(
-        format: ui.ImageByteFormat.rawRgba,
+      final result = await compute(
+        _analyzeSelectionBrightnessStatic,
+        [imageBytes, analysisMask],
       );
-      if (byteData == null) {
-        debugPrint(
-          '[BrightnessAnalysis] Не удалось получить данные изображения',
-        );
-        return null;
+      if (result == null) {
+        debugPrint('[BrightnessAnalysis] Ошибка анализа');
       }
-
-      final pixels = byteData.buffer.asUint8List();
-
-      // Статистика яркости и цвета
-      int darkPixelCount = 0;
-      int brightPixelCount = 0;
-      int mediumPixelCount = 0;
-      int totalSelectedPixels = 0;
-
-      double totalValue = 0;
-      double totalRed = 0;
-      double totalGreen = 0;
-      double totalBlue = 0;
-
-      // Проходим по всем пикселям маски
-      for (int i = 0; i < analysisMask.length; i++) {
-        if (analysisMask[i] == 1) {
-          final pixelIndex = i * 4;
-          if (pixelIndex + 3 >= pixels.length) continue;
-
-          final r = pixels[pixelIndex];
-          final g = pixels[pixelIndex + 1];
-          final b = pixels[pixelIndex + 2];
-
-          // Конвертируем в HSV для получения яркости (Value)
-          final hsv = ImageProcessingService.rgbToHsv(r, g, b);
-          final value = hsv[2]; // 0.0 - 1.0
-
-          totalValue += value;
-          totalRed += r;
-          totalGreen += g;
-          totalBlue += b;
-          totalSelectedPixels++;
-
-          // Классифицируем пиксель
-          if (value < ImageProcessingService.darkThreshold) {
-            darkPixelCount++;
-          } else if (value > ImageProcessingService.brightThreshold) {
-            brightPixelCount++;
-          } else {
-            mediumPixelCount++;
-          }
-        }
-      }
-
-      if (totalSelectedPixels == 0) {
-        debugPrint('[BrightnessAnalysis] Нет выделенных пикселей');
-        return null;
-      }
-
-      // Вычисляем средние значения
-      final avgValue = totalValue / totalSelectedPixels;
-      final meanR = (totalRed / totalSelectedPixels).round();
-      final meanG = (totalGreen / totalSelectedPixels).round();
-      final meanB = (totalBlue / totalSelectedPixels).round();
-
-      final darkPercent = (darkPixelCount * 100 / totalSelectedPixels).round();
-      final brightPercent = (brightPixelCount * 100 / totalSelectedPixels)
-          .round();
-      final mediumPercent = (mediumPixelCount * 100 / totalSelectedPixels)
-          .round();
-
-      // Определяем доминирующий тип пикселей
-      String dominantType;
-      if (darkPixelCount > brightPixelCount &&
-          darkPixelCount > mediumPixelCount) {
-        dominantType = 'dark';
-      } else if (brightPixelCount > darkPixelCount &&
-          brightPixelCount > mediumPixelCount) {
-        dominantType = 'bright';
-      } else if (mediumPixelCount > darkPixelCount &&
-          mediumPixelCount > brightPixelCount) {
-        dominantType = 'medium';
-      } else {
-        dominantType = 'mixed';
-      }
-
-      // Выводим подробный отчёт
-      print('\n' + '=' * 60);
-      print('  АНАЛИЗ ВЫДЕЛЕННОЙ ОБЛАСТИ');
-      print('=' * 60);
-      print('Доминирующий тип: $dominantType');
-      print('Средняя яркость: ${(avgValue * 100).toStringAsFixed(1)}%');
-      print(
-        'Распределение: тёмные=${darkPercent}%, средние=${mediumPercent}%, яркие=${brightPercent}%',
-      );
-      print('Всего пикселей: $totalSelectedPixels');
-      print('=' * 60);
-      print('');
-
-      // Порог цветового расстояния для фильтрации (в RGB пространстве 0-255)
-      // Установлено в 100 - баланс между скоростью и точностью
-      // Позволяет обрабатывать маску быстро, отфильтровывая сильно отличающиеся пиксели
-      final colorThreshold = 100;
-
-      return {
-        'dominantType': dominantType,
-        'meanR': meanR,
-        'meanG': meanG,
-        'meanB': meanB,
-        'colorThreshold': colorThreshold,
-      };
+      return result;
     } catch (e) {
       debugPrint('[BrightnessAnalysis] Ошибка анализа: $e');
       return null;

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'selection_tool.dart';
+import 'dart:async';
 
 /// Represents a saved project (edited photo) — immutable model
 @immutable
@@ -113,6 +114,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  static const Uint8List _emptyMask = Uint8List(0);
+  Timer? _debounce;
+  static const Duration _debounceDuration = Duration(milliseconds: 300);
+
   // Projects history
   final List<Project> _projects = [];
   List<Project> get projects => List.unmodifiable(_projects);
@@ -165,11 +170,17 @@ class AppState extends ChangeNotifier {
 
   /// Set selection mask
   void setSelectionMask(Uint8List mask) {
-    // Always save new state to history (mask changes on every brush stroke)
     _selectionMask = mask;
     _previewImage = null;
-    _saveToHistory(mask);
     notifyListeners();
+
+    // Debounce history saving
+    if (_debounce != null && _debounce!.isActive) {
+      _debounce!.cancel();
+    }
+    _debounce = Timer(_debounceDuration, () {
+      _saveToHistory(mask);
+    });
 
     // Логируем базовую статистику выделения
     final selectedCount = mask.where((p) => p == 1).length;
@@ -196,9 +207,9 @@ class AppState extends ChangeNotifier {
       _maskHistory.add(Uint8List(0));
     }
     _historyIndex = _maskHistory.length - 1;
-    // Limit history size to prevent memory bloat
-    const maxHistory = 30;
-    while (_maskHistory.length > maxHistory) {
+     // Limit history size to prevent memory bloat
+     const maxHistory = 20;
+     while (_maskHistory.length > maxHistory) {
       _maskHistory.removeAt(0);
       _historyIndex--;
     }
@@ -288,9 +299,14 @@ class AppState extends ChangeNotifier {
     _selectionMask = Uint8List(0);
     _previewImage = null;
     _currentStage = AppStage.camera;
-    _isPreviewMode = false;
-    notifyListeners();
-  }
+     _isPreviewMode = false;
+     notifyListeners();
+   }
+   @override
+   void dispose() {
+     _debounce?.cancel();
+     super.dispose();
+   }
 }
 
 /// Application stages

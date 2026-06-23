@@ -10,9 +10,16 @@ class ColorPaletteScreen extends StatefulWidget {
 }
 
 class _ColorPaletteScreenState extends State<ColorPaletteScreen> {
-  // Texture filters
-  final List<String> textureFilters = ['Без текстуры', 'Дерево', 'Металл'];
-  String selectedTexture = 'Без текстуры';
+  final List<String> materials = ['wood', 'metal', 'plastic', 'fabric'];
+  String selectedMaterial = 'wood';
+  String selectedTexture = 'wood';
+  
+  final Map<String, String> materialLabels = {
+    'wood': 'Дерево',
+    'metal': 'Металл',
+    'plastic': 'Пластик', 
+    'fabric': 'Ткань',
+  };
 
   // Wood texture options
   final List<String> woodTextureFiles = ['wood1', 'wood2', 'wood3'];
@@ -34,6 +41,36 @@ class _ColorPaletteScreenState extends State<ColorPaletteScreen> {
     const Color(0xFFFF9800), // orange
     const Color(0xFF795548), // brown
     const Color(0xFF607D8B), // blue grey
+  ];
+
+  final List<Color> plasticColors = [
+    const Color(0xFFE53935),
+    const Color(0xFFFB8C00),
+    const Color(0xFFFDD835),
+    const Color(0xFF43A047),
+    const Color(0xFF00ACC1),
+    const Color(0xFF1E88E5),
+    const Color(0xFF5E35B1),
+    const Color(0xFF8E24AA),
+    const Color(0xFFD81B60),
+    const Color(0xFF6D4C41),
+    const Color(0xFFF5F5F5),
+    const Color(0xFF212121),
+  ];
+
+  final List<Color> fabricColors = [
+    const Color(0xFF8D6E63),
+    const Color(0xFFA1887F),
+    const Color(0xFFBCAAA4),
+    const Color(0xFFD7CCC8),
+    const Color(0xFF37474F),
+    const Color(0xFF546E7A),
+    const Color(0xFF455A64),
+    const Color(0xFF607D8B),
+    const Color(0xFF795548),
+    const Color(0xFF4E342E),
+    const Color(0xFF263238),
+    const Color(0xFFECEFF1),
   ];
 
   // Wood colors (browns)
@@ -60,11 +97,14 @@ class _ColorPaletteScreenState extends State<ColorPaletteScreen> {
 
   List<Color> get _currentColors {
     switch (selectedTexture) {
-      case 'Дерево':
+      case 'wood':
         return woodColors;
-      case 'Металл':
+      case 'metal':
         return metalTintColors;
-      case 'Без текстуры':
+      case 'plastic':
+        return plasticColors;
+      case 'fabric':
+        return fabricColors;
       default:
         return solidColors;
     }
@@ -85,7 +125,7 @@ class _ColorPaletteScreenState extends State<ColorPaletteScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 8),
-                    _buildMyPaletteSection(),
+                    _buildMaterialSection(),
                     const SizedBox(height: 24),
                     _buildColorTextureSection(),
                     const SizedBox(height: 24),
@@ -140,118 +180,106 @@ class _ColorPaletteScreenState extends State<ColorPaletteScreen> {
     );
   }
 
-  Widget _buildMyPaletteSection() {
-    final appState = Provider.of<AppState>(context);
-    final myPaletteColors = appState.myPaletteColors;
-    final emptySlots = AppState.maxPaletteSlots - myPaletteColors.length;
-    final showEmptySlots = emptySlots > 0 ? emptySlots.clamp(0, 3) : 0;
-
+  Widget _buildMaterialSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Section header
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                Image.asset(
-                  'assets/icons/Love.png',
-                  width: 20,
-                  height: 20,
-                  color: Colors.white,
-                  errorBuilder: (context, error, stackTrace) =>
-                      const Icon(Icons.favorite, color: Colors.white, size: 20),
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  'Моя палитра',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  appState.clearMyPalette();
-                });
-              },
-              child: const Text(
-                'Удалить все',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
+            const Icon(Icons.category_outlined, color: Colors.white, size: 22),
+            const SizedBox(width: 8),
+            const Text(
+              'Материал',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        // Palette grid
+        const SizedBox(height: 14),
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: [
-            // Filled color slots
-            ...myPaletteColors.asMap().entries.map((entry) {
-              final index = entry.key;
-              final color = entry.value;
-              return _buildMyPaletteColorTile(color, index);
-            }),
-            // Empty slots with + button
-            ...List.generate(showEmptySlots, (i) => _buildEmptyPaletteSlot()),
-          ],
+          children: materials.map((material) {
+            final isSelected = selectedMaterial == material;
+            return GestureDetector(
+              onTap: () {
+                setState(() {
+                  selectedMaterial = material;
+                  selectedTexture = material;
+                  selectedPaletteIndex = null;
+                });
+
+                context.read<AppState>().setSelectedMaterial(material);
+                
+                if (material != 'wood') {
+                  context.read<AppState>().setSelectedWoodTexture(null);
+                }
+                if (material != 'metal') {
+                  context.read<AppState>().setSelectedMetalTexture(null);
+                }
+              },
+              child: Container(
+                width: 112,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? const Color(0xFF0A84FF)
+                      : const Color(0xFF2C2C2E),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isSelected ? Colors.white : Colors.white12,
+                    width: isSelected ? 2 : 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _materialIcon(material),
+                      color: isSelected ? Colors.white : Colors.white70,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _materialLabel(material),
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : Colors.white70,
+                        fontSize: 14,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
         ),
       ],
     );
   }
 
-  Widget _buildMyPaletteColorTile(Color color, int index) {
-    return GestureDetector(
-      onTap: () {
-        // Delete from my palette
-        Provider.of<AppState>(
-          context,
-          listen: false,
-        ).removeFromMyPalette(index);
-      },
-      child: Container(
-        width: 72,
-        height: 52,
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: const Color(0xFF0A84FF),
-            width: index == 0 ? 2.5 : 0,
-          ),
-        ),
-        child: index == 0
-            ? const Center(
-                child: Icon(
-                  Icons.delete_outline,
-                  color: Colors.white,
-                  size: 22,
-                ),
-              )
-            : null,
-      ),
-    );
+  IconData _materialIcon(String material) {
+    switch (material) {
+      case 'wood':
+        return Icons.table_chart;
+      case 'metal':
+        return Icons.auto_awesome_mosaic;
+      case 'plastic':
+        return Icons.opacity_outlined;
+      case 'fabric':
+        return Icons.grid_view;
+      default:
+        return Icons.category_outlined;
+    }
   }
-
-  Widget _buildEmptyPaletteSlot() {
-    return Container(
-      width: 72,
-      height: 52,
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2E),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Center(
-        child: Icon(Icons.add, color: Colors.white54, size: 24),
-      ),
-    );
+  
+  String _materialLabel(String material) {
+    return materialLabels[material] ?? material;
   }
 
   Widget _buildColorTextureSection() {
@@ -274,63 +302,11 @@ class _ColorPaletteScreenState extends State<ColorPaletteScreen> {
           ],
         ),
         const SizedBox(height: 14),
-        // Texture filter chips
-        Row(
-          children: textureFilters.map((filter) {
-            final isSelected = selectedTexture == filter;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: GestureDetector(
-                onTap: () {
-                  setState(() {
-                    selectedTexture = filter;
-                    selectedPaletteIndex = null; // reset selection
-                  });
-                  // Reset wood texture when switching away from 'Дерево'
-                  if (filter != 'Дерево') {
-                    context.read<AppState>().setSelectedWoodTexture(null);
-                  }
-                  // Reset metal texture when switching away from 'Металл'
-                  if (filter != 'Металл') {
-                    context.read<AppState>().setSelectedMetalTexture(null);
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? const Color(0xFF636366)
-                        : const Color(0xFF3A3A3C),
-                    borderRadius: BorderRadius.circular(20),
-                    border: isSelected
-                        ? Border.all(color: Colors.white24, width: 1)
-                        : null,
-                  ),
-                  child: Text(
-                    filter,
-                    style: TextStyle(
-                      color: isSelected ? Colors.white : Colors.white70,
-                      fontSize: 13,
-                      fontWeight: isSelected
-                          ? FontWeight.w500
-                          : FontWeight.normal,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-        const SizedBox(height: 14),
-        // Color grid
         _buildColorGrid(),
         // Texture selector for wood
-        if (selectedTexture == 'Дерево') _buildTextureSelector(),
+        if (selectedTexture == 'wood') _buildTextureSelector(),
         // Texture selector for metal
-        if (selectedTexture == 'Металл') _buildMetalTextureSelector(),
+        if (selectedTexture == 'metal') _buildMetalTextureSelector(),
       ],
     );
   }
@@ -356,7 +332,7 @@ class _ColorPaletteScreenState extends State<ColorPaletteScreen> {
           ],
         ),
         const SizedBox(height: 14),
-        // Texture options: "Без текстуры" + wood1, wood2, wood3
+        // Wood texture options
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -566,16 +542,12 @@ class _ColorPaletteScreenState extends State<ColorPaletteScreen> {
       itemBuilder: (context, index) {
         final isSelected = selectedPaletteIndex == index;
         final color = colors[index];
-        if (selectedTexture == 'Металл') {
+        if (selectedTexture == 'metal') {
           return GestureDetector(
             onTap: () {
               setState(() {
                 selectedPaletteIndex = index;
               });
-              Provider.of<AppState>(
-                context,
-                listen: false,
-              ).addToMyPalette(color);
             },
             child: _buildMetalTile(index, isSelected),
           );
@@ -585,10 +557,6 @@ class _ColorPaletteScreenState extends State<ColorPaletteScreen> {
               setState(() {
                 selectedPaletteIndex = index;
               });
-              Provider.of<AppState>(
-                context,
-                listen: false,
-              ).addToMyPalette(color);
             },
             child: _buildColorTile(color, isSelected),
           );

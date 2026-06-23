@@ -35,14 +35,14 @@ class SegmentationService {
     required Offset imagePosition,
     required int imageWidth,
     required int imageHeight,
-    int minComponentArea = 300,
-    int dilateKernel = 3,
-    double expandColorThreshold = 25.0,
+    required String material,
+    required int colorHex,
+    double strength = 1.0,
   }) async {
     try {
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('$serverUrl/segment'),
+        Uri.parse('$serverUrl/ai-recolor'),
       );
       request.files.add(
         http.MultipartFile.fromBytes(
@@ -54,37 +54,21 @@ class SegmentationService {
       );
       request.fields['point_x'] = imagePosition.dx.round().toString();
       request.fields['point_y'] = imagePosition.dy.round().toString();
-      request.fields['point_label'] = '1';
-      request.fields['min_component_area'] = minComponentArea.toString();
-      request.fields['dilate_kernel'] = dilateKernel.toString();
-      request.fields['expand_color_threshold'] = expandColorThreshold.toString();
+      request.fields['material'] = material;
+      request.fields['color_hex'] = colorHex.toString();
+      request.fields['strength'] = strength.toString();
 
-      // Add timeout of 30 seconds
       final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException('Request timeout after 30 seconds');
-        },
+        const Duration(seconds: 15),
       );
-      final response = await http.Response.fromStream(streamedResponse).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw TimeoutException('Response read timeout after 10 seconds');
-        },
-      );
-      final responseBody = response.body;
-      final jsonResponse = json.decode(responseBody);
-      if (response.statusCode == 200 && jsonResponse['success'] == true) {
-        final maskRle = jsonResponse['mask'];
-        final mask = _rleDecode(maskRle, imageWidth, imageHeight);
-        return _maskToUint8List(mask, imageWidth, imageHeight);
-      } else {
-        debugPrint('Ошибка сегментации: ${response.statusCode}');
-        debugPrint('Response body: $responseBody');
-        return null;
+      final response = await http.Response.fromStream(streamedResponse);
+      
+      if (response.statusCode == 200) {
+        return Uint8List.fromList(response.bodyBytes);
       }
+      return null;
     } catch (e) {
-      debugPrint('Исключение при сегментации: $e');
+      debugPrint('AI recolor error: $e');
       return null;
     }
   }
