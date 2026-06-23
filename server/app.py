@@ -50,56 +50,64 @@ COLOR_NAMES = {
 def get_color_hex_name(hex_color: int) -> str:
     """Convert hex to closest color name"""
     from colorsys import rgb_to_hsv
-    
+
     r = (hex_color >> 16) & 0xFF
     g = (hex_color >> 8) & 0xFF
     b = hex_color & 0xFF
-    
+
     h, s, v = rgb_to_hsv(r/255, g/255, b/255)
-    
+
     if s < 0.15:
-        if v > 0.8: return "white"
-        if v < 0.2: return "black"
+        if v > 0.8:
+            return "white"
+        if v < 0.2:
+            return "black"
         return "lightgray"
-    
-    if h < 0.1: return "red"
-    if h < 0.2: return "yellow"
-    if h < 0.4: return "green"
-    if h < 0.6: return "blue"
-    if h < 0.8: return "purple"
+
+    if h < 0.1:
+        return "red"
+    if h < 0.2:
+        return "yellow"
+    if h < 0.4:
+        return "green"
+    if h < 0.6:
+        return "blue"
+    if h < 0.8:
+        return "purple"
     return "red"
 
 
 @app.on_event("startup")
 async def load_models():
     global _predictor, _pipe
-    
+
     # SAM-2 Hiera-L
     try:
         from sam2.sam2_image_predictor import SAM2ImagePredictor
-        _predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2.1-hiera-large")
+        _predictor = SAM2ImagePredictor.from_pretrained(
+            "facebook/sam2.1-hiera-large")
         _predictor.model = _predictor.model.to(_device).eval()
         if _device == "cuda":
             _predictor.model = _predictor.model.half()
         print("SAM-2 Hiera-L loaded")
     except Exception as e:
         print(f"SAM-2 load error: {e}")
-    
+
     # ControlNet Tile (InstructPix2Pix variant for faster inference)
     try:
         from diffusers import StableDiffusionControlNetPipeline, ControlNetModel
-        
+
         controlnet = ControlNetModel.from_pretrained(
             "lllyasviel/control_v11f1p_sd15_depth",
             torch_dtype=torch.float16 if _device == "cuda" else torch.float32
         )
-        
+
         _pipe = StableDiffusionControlNetPipeline.from_pretrained(
             "runwayml/stable-diffusion-inpainting",
             controlnet=controlnet,
             torch_dtype=torch.float16 if _device == "cuda" else torch.float32
         ).to(_device)
-        
+
         _pipe.enable_xformers_memory_efficient_attention()
         _pipe.enable_model_cpu_offload()
         print("ControlNet Tile loaded")
@@ -122,7 +130,7 @@ async def ai_recolor(
     point_x: float = Form(...),
     point_y: float = Form(...),
     material: str = Form("wood"),
-    color_hex: int = Form(0xFF8B4513),
+    color_hex: str = Form("0xFF8B4513"),
     strength: float = Form(1.0),
 ):
     """
@@ -130,14 +138,18 @@ async def ai_recolor(
     """
     if _predictor is None or _pipe is None:
         raise HTTPException(503, "Models not loaded")
-    
+
     try:
         # Load image
         img_bytes = await image.read()
         image_pil = Image.open(BytesIO(img_bytes)).convert("RGB")
         image_np = np.array(image_pil)
+        if color_hex.startswith("0x"):
+            color_hex_int = int(color_hex, 16)
+        else:
+            color_hex_int = int(color_hex)
         h, w = image_np.shape[:2]
-        
+
         # SAM-2 segmentation
         with torch.no_grad():
             _predictor.set_image(image_np)
@@ -146,17 +158,20 @@ async def ai_recolor(
                 point_labels=np.array([1]),
                 multimask_output=True,
             )
-        
+
         best_mask = masks[np.argmax(scores)]
-        
+
         # Generate prompt
-        color_name = get_color_hex_name(color_hex)
-        prompt_template = MATERIAL_PROMPTS.get(material, "smooth surface, {color}")
-        prompt = prompt_template.format(color=color_name) + f", high quality, photorealistic"
-        
+        color_name = get_color_hex_name(color_hex_int)
+        prompt_template = MATERIAL_PROMPTS.get(
+            material, "smooth surface, {color}")
+        prompt = prompt_template.format(
+            color=color_name) + f", high quality, photorealistic"
+
         # Create mask PIL
-        mask_pil = Image.fromarray((best_mask * 255).astype(np.uint8), mode='L')
-        
+        mask_pil = Image.fromarray(
+            (best_mask * 255).astype(np.uint8), mode='L')
+
         # ControlNet inference
         result = _pipe(
             prompt=prompt,
@@ -167,12 +182,12 @@ async def ai_recolor(
             num_inference_steps=20,
             generator=torch.Generator(_device).manual_seed(42),
         ).images[0]
-        
+
         # Return PNG
         buf = BytesIO()
         result.save(buf, format="PNG")
         return Response(content=buf.getvalue(), media_type="image/png")
-        
+
     except Exception as e:
         raise HTTPException(500, str(e))
 
