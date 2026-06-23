@@ -11,7 +11,6 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
-from segment_utils import preprocess_image
 
 app = FastAPI(title="AI Colorization API", version="2.0.0")
 
