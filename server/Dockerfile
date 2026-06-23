@@ -8,20 +8,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install PyTorch (CUDA)
-RUN pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu121 --no-cache-dir
-
-# Install dependencies
+# Install dependencies first (will be cached unless requirements change)
 COPY requirements.ai.txt .
 RUN pip3 install -r requirements.ai.txt --no-cache-dir
 
-# Copy app
+# Copy app last (frequently changed, invalidates cache only for final layer)
 COPY app.py .
-
-# Cache models on first build
-RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/sam2.1-hiera-large')" 2>/dev/null || true
-RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('lllyasviel/control_v11f1p_sd15_depth')" 2>/dev/null || true
-RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('runwayml/stable-diffusion-inpainting')" 2>/dev/null || true
 
 EXPOSE 8001
 

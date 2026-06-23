@@ -1,0 +1,15 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.git
+.gitignore
+.env
+.venv
+venv
+.idea
+.vscode
+*.log
+models
+hf_cache

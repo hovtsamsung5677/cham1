@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   nginx:
     image: nginx:alpine
@@ -23,8 +21,7 @@ services:
     image: segment-ai:latest
     container_name: segment-ai
     environment:
-      - PORT=8001
-      - TORCH_HOME=/app/models
+      - HF_HOME=/root/.cache/huggingface   # указываем путь к кешу
     restart: unless-stopped
     deploy:
       resources:
@@ -34,7 +31,9 @@ services:
               count: 1
               capabilities: [gpu]
     volumes:
-      - ./server/models:/app/models
+      - ./hf_cache:/root/.cache/huggingface   # монтируем скачанные модели
+      # опционально: для быстрой правки кода без пересборки:
+      # - ./server/app.py:/app/app.py
     networks:
       - segmentation-network
 
