@@ -20,13 +20,27 @@ services:
       dockerfile: Dockerfile
     image: segment-ai:latest
     container_name: segment-ai
+    restart: unless-stopped
+
+    # ---------- ОПТИМИЗАЦИЯ ПАМЯТИ ----------
+    shm_size: 16g               # Разделяемая память для PyTorch/NCCL
+    ipc: host                   # Доступ к IPC хоста
+
     environment:
       - PORT=8001
-      - TORCH_HOME=/app/models
-      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      # Путь к кешу Hugging Face
+      - HF_HOME=/root/.cache/huggingface
+      # Токен для доступа к моделям (если нужно)
+      - HF_TOKEN=${HF_TOKEN}
+      # Оптимизация аллокатора CUDA
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # Отключаем проверку безопасности (если нужно)
+      - DISABLE_SAFETY_CHECKER=True
+
+    # Можно оставить и env_file, но я продублировал в environment
     env_file:
       - .env
-    restart: unless-stopped
+
     deploy:
       resources:
         reservations:
@@ -34,11 +48,22 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
     volumes:
-      - ./server/models:/app/models
+      # Кеш моделей Hugging Face (уже скачаны)
       - ./hf_cache:/root/.cache/huggingface
+      # (Опционально) для быстрой правки кода без пересборки:
+      # - ./server/app.py:/app/app.py
+
     networks:
       - segmentation-network
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 networks:
   segmentation-network:
