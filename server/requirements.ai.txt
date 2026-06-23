@@ -1,22 +1,19 @@
-# AI Server requirements
-torch>=2.6.0
-torchvision>=0.21.0
-opencv-python-headless>=4.9.0
+﻿# AI Server requirements (SAM-2 + adaptive recolor)
+torch>=2.0.0
+torchvision>=0.15.0
 numpy>=1.24.0
 Pillow>=10.0.0
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 huggingface-hub>=0.20.0
-diffusers>=0.25.0
-transformers>=4.38.0
-accelerate>=0.25.0
-xformers>=0.0.23
 
+# SAM-2
 sam2
-controlnet_aux
 scipy
 scikit-image
 timm
 einops
+
+# Utilities
 requests

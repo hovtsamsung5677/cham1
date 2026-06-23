@@ -123,6 +123,39 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // AI segmentation mask (for overlay preview)
+  Uint8List? _aiMask;
+  Uint8List? get aiMask => _aiMask;
+
+  void setAiMask(Uint8List? mask) {
+    _aiMask = mask;
+    notifyListeners();
+  }
+
+  // Segmentation points
+  final List<Offset> _positivePoints = [];
+  List<Offset> get positivePoints => List.unmodifiable(_positivePoints);
+
+  final List<Offset> _negativePoints = [];
+  List<Offset> get negativePoints => List.unmodifiable(_negativePoints);
+
+  void addPositivePoint(Offset point) {
+    _positivePoints.add(point);
+    notifyListeners();
+  }
+
+  void addNegativePoint(Offset point) {
+    _negativePoints.add(point);
+    notifyListeners();
+  }
+
+  void clearSegmentationPoints() {
+    _positivePoints.clear();
+    _negativePoints.clear();
+    _aiMask = null;
+    notifyListeners();
+  }
+
   final Uint8List _emptyMask = Uint8List(0);
   Timer? _debounce;
   static const Duration _debounceDuration = Duration(milliseconds: 300);

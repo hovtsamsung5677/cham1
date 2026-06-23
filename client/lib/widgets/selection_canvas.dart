@@ -23,6 +23,10 @@ class SelectionCanvas extends StatefulWidget {
   final VoidCallback? onDrawingEnd;
   final Function(Offset)? onAutoSegmentTap;
   final bool isSegmentationModeActive;
+  final Uint8List? aiMask;
+  final List<Offset> positivePoints;
+  final List<Offset> negativePoints;
+  final Function(Offset)? onAiMaskTap;
 
   const SelectionCanvas({
     super.key,
@@ -45,6 +49,10 @@ class SelectionCanvas extends StatefulWidget {
     this.onDrawingEnd,
     this.onAutoSegmentTap,
     this.isSegmentationModeActive = false,
+    this.aiMask,
+    this.positivePoints = const [],
+    this.negativePoints = const [],
+    this.onAiMaskTap,
   });
 
   @override
@@ -81,8 +89,14 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
   @override
   void didUpdateWidget(SelectionCanvas oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.imageBytes != oldWidget.imageBytes) {
+      _loadImage();
+    }
     if (widget.selectionMask != oldWidget.selectionMask && widget.selectionMask.any((m) => m == 1)) {
       _selectionMaskController.forward(from: 0);
+    }
+    if (widget.aiMask != oldWidget.aiMask) {
+      setState(() {});
     }
   }
 
@@ -151,6 +165,9 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
                     isZooming: _isZooming,
                     isPanning: _isPanning,
                     maskAnimationValue: _selectionMaskController.value,
+                    aiMask: widget.aiMask,
+                    positivePoints: widget.positivePoints,
+                    negativePoints: widget.negativePoints,
                   ),
                 ),
             ],
@@ -194,10 +211,29 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
   }
 
   void _onTap(Offset position, BoxConstraints constraints) {
+    final imagePos = _screenToImageCoordinates(position, constraints);
+
+    // If AI mask is shown and user taps on it, treat as exclusion tap
+    if (widget.aiMask != null &&
+        widget.aiMask!.isNotEmpty &&
+        widget.isSegmentationModeActive) {
+      final imgWidth = _imageSize.width.toInt();
+      final imgHeight = _imageSize.height.toInt();
+      final px = imagePos.dx.round().clamp(0, imgWidth - 1);
+      final py = imagePos.dy.round().clamp(0, imgHeight - 1);
+      final idx = py * imgWidth + px;
+      if (idx < widget.aiMask!.length && widget.aiMask![idx] == 1) {
+        // Tap is on the mask - exclude this point
+        if (widget.onAiMaskTap != null) {
+          widget.onAiMaskTap!(imagePos);
+          return;
+        }
+      }
+    }
+
     if (widget.currentTool == SelectionTool.interactiveSegmentation &&
         widget.isSegmentationModeActive &&
         widget.onAutoSegmentTap != null) {
-      final imagePos = _screenToImageCoordinates(position, constraints);
       widget.onAutoSegmentTap!(imagePos);
     }
   }
@@ -300,6 +336,9 @@ class _SelectionCanvasPainter extends CustomPainter {
   final bool isZooming;
   final bool isPanning;
   final double maskAnimationValue;
+  final Uint8List? aiMask;
+  final List<Offset> positivePoints;
+  final List<Offset> negativePoints;
 
   _SelectionCanvasPainter({
     required this.image,
@@ -310,6 +349,9 @@ class _SelectionCanvasPainter extends CustomPainter {
     this.isZooming = false,
     this.isPanning = false,
     this.maskAnimationValue = 0.0,
+    this.aiMask,
+    this.positivePoints = const [],
+    this.negativePoints = const [],
   });
 
   @override
@@ -469,6 +511,72 @@ class _SelectionCanvasPainter extends CustomPainter {
         );
       }
     }
+
+    // Draw AI mask overlay (light blue transparent)
+    if (aiMask != null && aiMask!.isNotEmpty) {
+      final aiMaskPaint = Paint()
+        ..color = const Color(0xFF6495ED).withValues(alpha: 0.35)
+        ..style = PaintingStyle.fill;
+      for (int y = 0; y < imgHeight; y += 4) {
+        if (y < srcY || y >= srcY + visibleHeight) continue;
+        int x = 0;
+        while (x < imgWidth) {
+          if (x < srcX) { x++; continue; }
+          if (x >= srcX + visibleWidth) break;
+          while (x < imgWidth) {
+            if (x >= srcX + visibleWidth) break;
+            final idx = y * imgWidth + x;
+            if (idx < aiMask!.length && aiMask![idx] == 1) break;
+            x++;
+          }
+          if (x >= imgWidth || x >= srcX + visibleWidth) break;
+          int startX = x;
+          while (x < imgWidth) {
+            if (x >= srcX + visibleWidth) break;
+            final idx = y * imgWidth + x;
+            if (idx >= aiMask!.length || aiMask![idx] != 1) break;
+            x++;
+          }
+          int endX = x - 1;
+          final screenX = offsetX + (startX - srcX) * scaleX;
+          final screenY = offsetY + (y - srcY) * scaleY;
+          final screenWidth = (endX - startX + 1) * scaleX;
+          final screenHeight = scaleY * 4;
+          canvas.drawRect(
+            Rect.fromLTWH(screenX, screenY, screenWidth, screenHeight),
+            aiMaskPaint,
+          );
+        }
+      }
+
+      // Draw positive points (green)
+      final greenDotPaint = Paint()
+        ..color = const Color(0xFF4CAF50)
+        ..style = PaintingStyle.fill;
+      for (final point in positivePoints) {
+        final screenX = offsetX + (point.dx - srcX) * scaleX;
+        final screenY = offsetY + (point.dy - srcY) * scaleY;
+        canvas.drawCircle(Offset(screenX, screenY), 8.0, greenDotPaint);
+        canvas.drawCircle(Offset(screenX, screenY), 8.0, Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0);
+      }
+
+      // Draw negative points (red)
+      final redDotPaint = Paint()
+        ..color = const Color(0xFFF44336)
+        ..style = PaintingStyle.fill;
+      for (final point in negativePoints) {
+        final screenX = offsetX + (point.dx - srcX) * scaleX;
+        final screenY = offsetY + (point.dy - srcY) * scaleY;
+        canvas.drawCircle(Offset(screenX, screenY), 8.0, redDotPaint);
+        canvas.drawCircle(Offset(screenX, screenY), 8.0, Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0);
+      }
+    }
   }
 
   @override
@@ -480,6 +588,9 @@ class _SelectionCanvasPainter extends CustomPainter {
         currentOffset != oldDelegate.currentOffset ||
         isZooming != oldDelegate.isZooming ||
         isPanning != oldDelegate.isPanning ||
-        maskAnimationValue != oldDelegate.maskAnimationValue;
+        maskAnimationValue != oldDelegate.maskAnimationValue ||
+        aiMask != oldDelegate.aiMask ||
+        positivePoints != oldDelegate.positivePoints ||
+        negativePoints != oldDelegate.negativePoints;
   }
 }

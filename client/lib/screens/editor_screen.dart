@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -136,6 +136,11 @@ class _EditorScreenState extends State<EditorScreen>
   // State for segmentation mode (toggle)
   bool _isSegmentationModeActive = false;
 
+  // AI segmentation state
+  Uint8List? _currentAiMask;
+  final List<Offset> _segPositivePoints = [];
+  final List<Offset> _segNegativePoints = [];
+
   @override
   void initState() {
     super.initState();
@@ -204,6 +209,10 @@ if (imageBytes == null) {
                           ? _handleAutoSegmentation
                           : null,
                       isSegmentationModeActive: _isSegmentationModeActive,
+                      aiMask: _currentAiMask,
+                      positivePoints: _segPositivePoints,
+                      negativePoints: _segNegativePoints,
+                      onAiMaskTap: _handleAiMaskExclusionTap,
                     ),
                   ),
                 );
@@ -281,12 +290,19 @@ if (imageBytes == null) {
                 ),
                 const SizedBox(width: 24),
                 _BottomAction(
-                  child: const _IconAssetWidget(
-                    assetPath: 'assets/icons/Eye.png',
+                  child: Icon(
+                    _currentAiMask != null ? Icons.check_circle : Icons.visibility,
                     size: 26,
+                    color: _currentAiMask != null ? const Color(0xFFFFC107) : Colors.white,
                   ),
-                  label: 'Превью',
-                  onTap: () => _applyRecoloring(context),
+                  label: _currentAiMask != null ? 'Перекрасить' : 'Превью',
+                  onTap: () {
+                    if (_currentAiMask != null && _segPositivePoints.isNotEmpty) {
+                      _runAiRecolor();
+                    } else {
+                      _applyRecoloring(context);
+                    }
+                  },
                 ),
               ],
             ),
@@ -303,70 +319,99 @@ if (imageBytes == null) {
   Widget _buildAutoSegmentationFAB() {
     final bool isActive = _isSegmentationModeActive;
 
-    return AnimatedBuilder(
-      animation: _fabPulseAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: _fabPulseAnimation.value,
-          child: child,
-        );
-      },
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _isSegmentationModeActive = !_isSegmentationModeActive;
-          });
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutBack,
-          width: 68,
-          height: 68,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isActive ? const Color(0xFFFFC107) : Colors.grey,
-            boxShadow: isActive
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFFFFC107).withValues(alpha: 0.5),
-                      blurRadius: 20,
-                      spreadRadius: 4,
-                    ),
-                  ]
-                : [],
-          ),
-          child: TweenAnimationBuilder<double>(
-            duration: const Duration(milliseconds: 200),
-            tween: Tween(begin: 0.0, end: 1.0),
-            curve: Curves.easeOut,
-            builder: (context, value, child) {
-              return Opacity(opacity: value, child: child);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_currentAiMask != null)
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                _currentAiMask = null;
+                _segPositivePoints.clear();
+                _segNegativePoints.clear();
+                appState.setAiMask(null);
+              });
             },
-            child: Center(
-              child: Image.asset(
-                'assets/icons/Hand Cursor.png',
-                width: 32,
-                height: 32,
-                color: isActive ? Colors.white : Colors.white70,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: const BoxDecoration(
+                color: Color(0xFFF44336),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.close, color: Colors.white, size: 20),
+            ),
+          ),
+        const SizedBox(height: 8),
+        AnimatedBuilder(
+          animation: _fabPulseAnimation,
+          builder: (context, child) {
+            return Transform.scale(
+              scale: _fabPulseAnimation.value,
+              child: child,
+            );
+          },
+          child: GestureDetector(
+            onTap: () {
+              setState(() {
+                _isSegmentationModeActive = !_isSegmentationModeActive;
+                if (!_isSegmentationModeActive) {
+                  _currentAiMask = null;
+                  _segPositivePoints.clear();
+                  _segNegativePoints.clear();
+                  appState.setAiMask(null);
+                }
+              });
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutBack,
+              width: 68,
+              height: 68,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isActive ? const Color(0xFFFFC107) : Colors.grey,
+                boxShadow: isActive
+                    ? [
+                        BoxShadow(
+                          color: const Color(0xFFFFC107).withValues(alpha: 0.5),
+                          blurRadius: 20,
+                          spreadRadius: 4,
+                        ),
+                      ]
+                    : [],
+              ),
+              child: TweenAnimationBuilder<double>(
+                duration: const Duration(milliseconds: 200),
+                tween: Tween(begin: 0.0, end: 1.0),
+                curve: Curves.easeOut,
+                builder: (context, value, child) {
+                  return Opacity(opacity: value, child: child);
+                },
+                child: Center(
+                  child: Image.asset(
+                    'assets/icons/Hand Cursor.png',
+                    width: 32,
+                    height: 32,
+                    color: isActive ? Colors.white : Colors.white70,
+                  ),
+                ),
               ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SEGMENTATION
   // ═══════════════════════════════════════════════════════════════════════════
-
-  /// Обрабатывает клик для авто-сегментации объекта с AI-перекраской.
+  /// Обрабатывает первый клик - добавляет положительную точку и показывает маску
   Future<void> _handleAutoSegmentation(Offset imagePosition) async {
     final appState = context.read<AppState>();
 
-    if (appState.isLoading) {
-      return;
-    }
+    if (appState.isLoading) return;
 
     appState.setLoading(true);
 
@@ -379,10 +424,95 @@ if (imageBytes == null) {
       final int imageWidth = frame.image.width;
       final int imageHeight = frame.image.height;
 
-      // AI recolor - получаем готовую картинку
+      setState(() {
+        _segPositivePoints.add(imagePosition);
+        _segNegativePoints.clear();
+      });
+
+      final maskBytes = await _segmentationService.getMask(
+        imageBytes: imageBytes,
+        positivePoint: imagePosition,
+        negativePoints: const [],
+        imageWidth: imageWidth,
+        imageHeight: imageHeight,
+      );
+
+      if (mounted && maskBytes != null) {
+        setState(() {
+          _currentAiMask = maskBytes;
+        });
+        appState.setAiMask(maskBytes);
+      }
+    } catch (e) {
+      debugPrint('Ошибка сегментации: $e');
+    } finally {
+      appState.setLoading(false);
+    }
+  }
+
+  /// Обрабатывает тап по маске - добавляет отрицательную точку (исключает область)
+  Future<void> _handleAiMaskExclusionTap(Offset imagePosition) async {
+    final appState = context.read<AppState>();
+
+    if (appState.isLoading) return;
+
+    appState.setLoading(true);
+
+    try {
+      final imageBytes = appState.capturedImage;
+      if (imageBytes == null) return;
+
+      final codec = await ui.instantiateImageCodec(imageBytes);
+      final frame = await codec.getNextFrame();
+      final int imageWidth = frame.image.width;
+      final int imageHeight = frame.image.height;
+
+      setState(() {
+        _segNegativePoints.add(imagePosition);
+      });
+
+      final maskBytes = await _segmentationService.getMask(
+        imageBytes: imageBytes,
+        positivePoint: _segPositivePoints.first,
+        negativePoints: _segNegativePoints,
+        imageWidth: imageWidth,
+        imageHeight: imageHeight,
+      );
+
+      if (mounted && maskBytes != null) {
+        setState(() {
+          _currentAiMask = maskBytes;
+        });
+        appState.setAiMask(maskBytes);
+      }
+    } catch (e) {
+      debugPrint('Ошибка обновления маски: $e');
+    } finally {
+      appState.setLoading(false);
+    }
+  }
+
+  /// Runs AI recolor with current segmentation points
+  Future<void> _runAiRecolor() async {
+    final appState = context.read<AppState>();
+
+    if (appState.isLoading) return;
+    if (_currentAiMask == null || _segPositivePoints.isEmpty) return;
+
+    appState.setLoading(true);
+
+    try {
+      final imageBytes = appState.capturedImage;
+      if (imageBytes == null) return;
+
+      final codec = await ui.instantiateImageCodec(imageBytes);
+      final frame = await codec.getNextFrame();
+      final int imageWidth = frame.image.width;
+      final int imageHeight = frame.image.height;
+
       final resultBytes = await _segmentationService.segmentObject(
         imageBytes: imageBytes,
-        imagePosition: imagePosition,
+        imagePosition: _segPositivePoints.first,
         imageWidth: imageWidth,
         imageHeight: imageHeight,
         material: appState.selectedMaterial,
@@ -393,7 +523,20 @@ if (imageBytes == null) {
       if (mounted && resultBytes != null) {
         appState.setPreviewImage(resultBytes);
         if (!appState.isPreviewMode) appState.togglePreviewMode();
-        _showSuccessSnackBar(context, 'Объект перекрашен');
+        appState.addProject(resultBytes);
+        _currentAiMask = null;
+        _segPositivePoints.clear();
+        _segNegativePoints.clear();
+        appState.setAiMask(null);
+        if (mounted) {
+          Navigator.push(
+            context,
+            AppTransitions.slideRoute(
+              const ExportScreen(),
+              direction: SlideDirection.up,
+            ),
+          );
+        }
       } else if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -986,3 +1129,5 @@ class _RecolorParams {
     this.blendFactor = 1.0,
   });
 }
+
+
