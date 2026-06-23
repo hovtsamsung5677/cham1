@@ -1,18 +1,61 @@
 """
-AI-сервер для сегментации + перекраски с SAM-2 Hiera-L + ControlNet Tile
+AI-сервер для сегментации + перекраски с SAM-2 и ControlNet Inpaint
 """
-import os
-import json
 import numpy as np
 import torch
 from io import BytesIO
-from typing import Optional
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
-app = FastAPI(title="AI Colorization API", version="2.0.0")
+# --------------------- Lifespan для загрузки и выгрузки моделей ---------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _predictor, _pipe, _device
+    _device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Загрузка SAM-2
+    try:
+        from sam2.sam2_image_predictor import SAM2ImagePredictor
+        _predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2.1-hiera-large")
+        _predictor.model = _predictor.model.to(_device).eval()
+        print("SAM-2 Hiera-L loaded")
+    except Exception as e:
+        print(f"SAM-2 load error: {e}")
+        _predictor = None
+
+    # Загрузка ControlNet Inpaint
+    try:
+        from diffusers import StableDiffusionControlNetInpaintPipeline, ControlNetModel
+
+        controlnet = ControlNetModel.from_pretrained(
+            "lllyasviel/control_v11p_sd15_inpaint",
+            torch_dtype=torch.float32
+        )
+        _pipe = StableDiffusionControlNetInpaintPipeline.from_pretrained(
+            "runwayml/stable-diffusion-v1-5",
+            controlnet=controlnet,
+            torch_dtype=torch.float32
+        ).to(_device)
+        _pipe.enable_xformers_memory_efficient_attention()
+        _pipe.enable_model_cpu_offload()
+        print("ControlNet Inpaint pipeline loaded")
+    except Exception as e:
+        print(f"ControlNet Inpaint pipeline load error: {e}")
+        _pipe = None
+
+    yield  # здесь приложение работает
+
+    # Очистка при завершении
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        print("GPU cache cleared")
+
+
+# --------------------- FastAPI приложение ---------------------
+app = FastAPI(title="AI Colorization API", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -22,12 +65,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global model references
+# Глобальные переменные
 _predictor = None
 _pipe = None
-_device = "cuda" if torch.cuda.is_available() else "cpu"
+_device = "cpu"
 
-# Material mapping to prompts
+# Маппинги материалов и цветов
 MATERIAL_PROMPTS = {
     "wood": "wood texture, natural wood grain, brown {color}",
     "metal": "metallic surface, shiny metal, reflective, {color}",
@@ -48,71 +91,40 @@ COLOR_NAMES = {
 
 
 def get_color_hex_name(hex_color: int) -> str:
-    """Convert hex to closest color name"""
     from colorsys import rgb_to_hsv
-
     r = (hex_color >> 16) & 0xFF
     g = (hex_color >> 8) & 0xFF
     b = hex_color & 0xFF
-
     h, s, v = rgb_to_hsv(r/255, g/255, b/255)
-
     if s < 0.15:
-        if v > 0.8:
-            return "white"
-        if v < 0.2:
-            return "black"
+        if v > 0.8: return "white"
+        if v < 0.2: return "black"
         return "lightgray"
-
-    if h < 0.1:
-        return "red"
-    if h < 0.2:
-        return "yellow"
-    if h < 0.4:
-        return "green"
-    if h < 0.6:
-        return "blue"
-    if h < 0.8:
-        return "purple"
+    if h < 0.1: return "red"
+    if h < 0.2: return "yellow"
+    if h < 0.4: return "green"
+    if h < 0.6: return "blue"
+    if h < 0.8: return "purple"
     return "red"
 
 
-@app.on_event("startup")
-async def load_models():
-    global _predictor, _pipe
+def make_inpaint_condition(image, image_mask):
+    """
+    Подготавливает управляющее изображение для ControlNet Inpaint.
+    Там, где маска > 0.5, пиксели закрашиваются черным (-1.0).
+    Возвращает тензор формата [1, 3, H, W] в диапазоне [-1, 1].
+    """
+    image = np.array(image.convert("RGB")).astype(np.float32) / 255.0
+    image_mask = np.array(image_mask.convert("L")).astype(np.float32) / 255.0
 
-    # SAM-2 Hiera-L
-    try:
-        from sam2.sam2_image_predictor import SAM2ImagePredictor
-        _predictor = SAM2ImagePredictor.from_pretrained(
-            "facebook/sam2.1-hiera-large")
-        _predictor.model = _predictor.model.to(_device).eval()
-        if _device == "cuda":
-            _predictor.model = _predictor.model.half()
-        print("SAM-2 Hiera-L loaded")
-    except Exception as e:
-        print(f"SAM-2 load error: {e}")
+    # Маска должна быть такого же размера
+    assert image.shape[0:2] == image_mask.shape[0:2], "Image and mask must have the same size"
 
-    # ControlNet Tile (InstructPix2Pix variant for faster inference)
-    try:
-        from diffusers import StableDiffusionControlNetPipeline, ControlNetModel
-
-        controlnet = ControlNetModel.from_pretrained(
-            "lllyasviel/control_v11f1p_sd15_depth",
-            torch_dtype=torch.float16 if _device == "cuda" else torch.float32
-        )
-
-        _pipe = StableDiffusionControlNetPipeline.from_pretrained(
-            "runwayml/stable-diffusion-inpainting",
-            controlnet=controlnet,
-            torch_dtype=torch.float16 if _device == "cuda" else torch.float32
-        ).to(_device)
-
-        _pipe.enable_xformers_memory_efficient_attention()
-        _pipe.enable_model_cpu_offload()
-        print("ControlNet Tile loaded")
-    except Exception as e:
-        print(f"ControlNet load error: {e}")
+    # Закрашиваем область маски черным
+    image[image_mask > 0.5] = -1.0
+    # Преобразуем в тензор [1, 3, H, W]
+    image = np.expand_dims(image, 0).transpose(0, 3, 1, 2)
+    return torch.from_numpy(image)
 
 
 @app.get("/health")
@@ -133,24 +145,22 @@ async def ai_recolor(
     color_hex: str = Form("0xFF8B4513"),
     strength: float = Form(1.0),
 ):
-    """
-    AI-перекраска: сегментация SAM-2 + стилизация ControlNet
-    """
     if _predictor is None or _pipe is None:
         raise HTTPException(503, "Models not loaded")
 
     try:
-        # Load image
+        # 1. Загрузка изображения
         img_bytes = await image.read()
         image_pil = Image.open(BytesIO(img_bytes)).convert("RGB")
         image_np = np.array(image_pil)
+
+        # 2. Преобразование color_hex
         if color_hex.startswith("0x"):
             color_hex_int = int(color_hex, 16)
         else:
             color_hex_int = int(color_hex)
-        h, w = image_np.shape[:2]
 
-        # SAM-2 segmentation
+        # 3. Сегментация SAM-2
         with torch.no_grad():
             _predictor.set_image(image_np)
             masks, scores, _ = _predictor.predict(
@@ -158,32 +168,32 @@ async def ai_recolor(
                 point_labels=np.array([1]),
                 multimask_output=True,
             )
-
         best_mask = masks[np.argmax(scores)]
 
-        # Generate prompt
+        # 4. Формирование промпта
         color_name = get_color_hex_name(color_hex_int)
-        prompt_template = MATERIAL_PROMPTS.get(
-            material, "smooth surface, {color}")
-        prompt = prompt_template.format(
-            color=color_name) + f", high quality, photorealistic"
+        prompt_template = MATERIAL_PROMPTS.get(material, "smooth surface, {color}")
+        prompt = prompt_template.format(color=color_name) + ", high quality, photorealistic"
 
-        # Create mask PIL
-        mask_pil = Image.fromarray(
-            (best_mask * 255).astype(np.uint8), mode='L')
+        # 5. Создание маски PIL (mode='L')
+        mask_pil = Image.fromarray((best_mask * 255).astype(np.uint8), mode='L')
 
-        # ControlNet inference
+        # 6. Подготовка управляющего изображения для ControlNet
+        control_image = make_inpaint_condition(image_pil, mask_pil)
+
+        # 7. Инференс
         result = _pipe(
             prompt=prompt,
             image=image_pil,
             mask_image=mask_pil,
+            control_image=control_image,
             strength=0.65 + 0.25 * strength,
             guidance_scale=7.5,
             num_inference_steps=20,
             generator=torch.Generator(_device).manual_seed(42),
         ).images[0]
 
-        # Return PNG
+        # 8. Возврат PNG
         buf = BytesIO()
         result.save(buf, format="PNG")
         return Response(content=buf.getvalue(), media_type="image/png")
