@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install dependencies first (will be cached unless requirements change)
-COPY requirements.ai.txt .cd
+COPY requirements.ai.txt .
 RUN pip3 install -r requirements.ai.txt --no-cache-dir
 
 # Copy app last (frequently changed, invalidates cache only for final layer)
