@@ -1,4 +1,4 @@
-"""
+﻿"""
 AI-сервер для сегментации + перекраски с SAM-2 и Intrinsic Decomposition
 """
 import logging
@@ -87,6 +87,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     logger.error(f"🔥 GLOBAL EXCEPTION: {exc}")
@@ -147,6 +148,7 @@ def _build_sam_point_coords(positive_point, negative_points):
     return positive_coord, positive_labels
 
 
+# ========== ИСПРАВЛЕННАЯ ФУНКЦИЯ recolor_adaptive ==========
 def recolor_adaptive(image_pil, mask_pil, target_r, target_g, target_b, strength=1.0):
     image_np = np.array(image_pil).astype(np.float32) / 255.0
     mask_np = np.array(mask_pil.convert('L')).astype(np.float32) / 255.0
@@ -160,21 +162,17 @@ def recolor_adaptive(image_pil, mask_pil, target_r, target_g, target_b, strength
     bright_count = 0
     medium_count = 0
 
-    pixel_classes = np.zeros((h_img, w_img), dtype=np.int8)
+    # Проходим по пикселям, используя правильную двумерную индексацию
     for y in range(h_img):
         for x in range(w_img):
-            idx = y * w_img + x
-            if mask_np[idx] > 0.5:
+            if mask_np[y, x] > 0.5:
                 r, g, b = image_np[y, x]
                 luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
                 if luma < DARK_THRESHOLD:
-                    pixel_classes[y, x] = 0
                     dark_count += 1
                 elif luma > BRIGHT_THRESHOLD:
-                    pixel_classes[y, x] = 1
                     bright_count += 1
                 else:
-                    pixel_classes[y, x] = 2
                     medium_count += 1
 
     total = dark_count + bright_count + medium_count
@@ -199,8 +197,7 @@ def recolor_adaptive(image_pil, mask_pil, target_r, target_g, target_b, strength
     if use_screen:
         for y in range(h_img):
             for x in range(w_img):
-                idx = y * w_img + x
-                if mask_np[idx] > 0.5:
+                if mask_np[y, x] > 0.5:
                     r, g, b = image_np[y, x] * 255.0
                     tr, tg, tb = t_r * 255.0, t_g * 255.0, t_b * 255.0
 
@@ -224,8 +221,7 @@ def recolor_adaptive(image_pil, mask_pil, target_r, target_g, target_b, strength
     elif use_overlay:
         for y in range(h_img):
             for x in range(w_img):
-                idx = y * w_img + x
-                if mask_np[idx] > 0.5:
+                if mask_np[y, x] > 0.5:
                     r, g, b = image_np[y, x]
                     gray = 0.2126 * r + 0.7152 * g + 0.0722 * b
                     value = gray
@@ -240,8 +236,7 @@ def recolor_adaptive(image_pil, mask_pil, target_r, target_g, target_b, strength
     else:
         for y in range(h_img):
             for x in range(w_img):
-                idx = y * w_img + x
-                if mask_np[idx] > 0.5:
+                if mask_np[y, x] > 0.5:
                     r, g, b = image_np[y, x]
                     value = max(r, g, b)
                     c = value * t_s
