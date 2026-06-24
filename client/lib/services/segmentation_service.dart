@@ -11,13 +11,13 @@ class SegmentationService {
   final http.Client _client;
 
   SegmentationService({String? serverUrl, http.Client? client})
-      : serverUrl =
-            serverUrl ??
-            const String.fromEnvironment(
-              'SERVER_URL',
-              defaultValue: 'http://212.41.29.205',
-            ),
-        _client = client ?? http.Client();
+    : serverUrl =
+          serverUrl ??
+          const String.fromEnvironment(
+            'SERVER_URL',
+            defaultValue: 'http://212.41.29.205:8001',
+          ),
+      _client = client ?? http.Client();
 
   Future<bool> isServerAvailable() async {
     try {
@@ -29,6 +29,7 @@ class SegmentationService {
       return false;
     }
   }
+
   Future<Uint8List?> getMask({
     required Uint8List imageBytes,
     required Offset positivePoint,
@@ -53,8 +54,12 @@ class SegmentationService {
       request.fields['point_y'] = positivePoint.dy.round().toString();
 
       if (negativePoints != null && negativePoints.isNotEmpty) {
-        final negX = negativePoints.map((p) => p.dx.round().toString()).join(',');
-        final negY = negativePoints.map((p) => p.dy.round().toString()).join(',');
+        final negX = negativePoints
+            .map((p) => p.dx.round().toString())
+            .join(',');
+        final negY = negativePoints
+            .map((p) => p.dy.round().toString())
+            .join(',');
         request.fields['negative_point_x'] = negX;
         request.fields['negative_point_y'] = negY;
       }
@@ -63,7 +68,9 @@ class SegmentationService {
         const Duration(seconds: 60),
       );
       final response = await http.Response.fromStream(streamedResponse);
-      debugPrint('Mask response: status=${response.statusCode}, bytes=${response.bodyBytes.length}');
+      debugPrint(
+        'Mask response: status=${response.statusCode}, bytes=${response.bodyBytes.length}',
+      );
 
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
         return Uint8List.fromList(response.bodyBytes);
@@ -74,7 +81,6 @@ class SegmentationService {
       return null;
     }
   }
-
 
   Future<Uint8List?> segmentObject({
     required Uint8List imageBytes,
@@ -103,19 +109,24 @@ class SegmentationService {
       request.fields['point_x'] = imagePosition.dx.round().toString();
       request.fields['point_y'] = imagePosition.dy.round().toString();
       request.fields['material'] = material;
-      request.fields['color_hex'] = '0x${rgbValue.toRadixString(16).padLeft(6, '0')}';
+      request.fields['color_hex'] =
+          '0x${rgbValue.toRadixString(16).padLeft(6, '0')}';
       request.fields['strength'] = strength.toString();
 
       final streamedResponse = await request.send().timeout(
         const Duration(seconds: 60),
       );
       final response = await http.Response.fromStream(streamedResponse);
-      debugPrint('AI recolor response: status=${response.statusCode}, bytes=${response.bodyBytes.length}');
+      debugPrint(
+        'AI recolor response: status=${response.statusCode}, bytes=${response.bodyBytes.length}',
+      );
 
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
         return Uint8List.fromList(response.bodyBytes);
       }
-      debugPrint('AI recolor empty/invalid response: status=${response.statusCode}');
+      debugPrint(
+        'AI recolor empty/invalid response: status=${response.statusCode}',
+      );
       return null;
     } catch (e) {
       debugPrint('AI recolor error: $e');

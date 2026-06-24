@@ -59,7 +59,8 @@ class SelectionCanvas extends StatefulWidget {
   State<SelectionCanvas> createState() => _SelectionCanvasState();
 }
 
-class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderStateMixin {
+class _SelectionCanvasState extends State<SelectionCanvas>
+    with TickerProviderStateMixin {
   ui.Image? _decodedImage;
   Size _imageSize = const Size(800, 600);
 
@@ -92,10 +93,19 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
     if (widget.imageBytes != oldWidget.imageBytes) {
       _loadImage();
     }
-    if (widget.selectionMask != oldWidget.selectionMask && widget.selectionMask.any((m) => m == 1)) {
+    if (widget.selectionMask != oldWidget.selectionMask &&
+        widget.selectionMask.any((m) => m == 1)) {
       _selectionMaskController.forward(from: 0);
     }
     if (widget.aiMask != oldWidget.aiMask) {
+      print(
+        '🔄 SelectionCanvas: aiMask изменился, длина = ${widget.aiMask?.length ?? "null"}',
+      );
+      // Выведем количество единиц
+      if (widget.aiMask != null && widget.aiMask!.isNotEmpty) {
+        int ones = widget.aiMask!.where((v) => v == 1).length;
+        print('🔢 SelectionCanvas: в новой маске единиц = $ones');
+      }
       setState(() {});
     }
   }
@@ -110,7 +120,8 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
           _currentScale += scaleDiff * 0.15;
           _currentOffset += offsetDiff * 0.15;
         });
-      } else if (_targetOffset != _currentOffset || _targetScale != _currentScale) {
+      } else if (_targetOffset != _currentOffset ||
+          _targetScale != _currentScale) {
         setState(() {
           _currentScale = _targetScale;
           _currentOffset = _targetOffset;
@@ -132,7 +143,10 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
       if (mounted) {
         setState(() {
           _decodedImage = frame.image;
-          _imageSize = Size(frame.image.width.toDouble(), frame.image.height.toDouble());
+          _imageSize = Size(
+            frame.image.width.toDouble(),
+            frame.image.height.toDouble(),
+          );
         });
       }
     } catch (e) {
@@ -177,7 +191,10 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
     );
   }
 
-  Offset _screenToImageCoordinates(Offset screenPosition, BoxConstraints constraints) {
+  Offset _screenToImageCoordinates(
+    Offset screenPosition,
+    BoxConstraints constraints,
+  ) {
     final size = Size(constraints.maxWidth, constraints.maxHeight);
     final aspectRatio = _imageSize.width / _imageSize.height;
     double baseWidth, baseHeight;
@@ -201,11 +218,23 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
     final pixelsPerImageX = srcWidth / baseWidth;
     final pixelsPerImageY = srcHeight / baseHeight;
 
-    final srcX = ((_imageSize.width - srcWidth) / 2 - _currentOffset.dx * pixelsPerImageX).clamp(0.0, _imageSize.width - srcWidth);
-    final srcY = ((_imageSize.height - srcHeight) / 2 - _currentOffset.dy * pixelsPerImageY).clamp(0.0, _imageSize.height - srcHeight);
+    final srcX =
+        ((_imageSize.width - srcWidth) / 2 -
+                _currentOffset.dx * pixelsPerImageX)
+            .clamp(0.0, _imageSize.width - srcWidth);
+    final srcY =
+        ((_imageSize.height - srcHeight) / 2 -
+                _currentOffset.dy * pixelsPerImageY)
+            .clamp(0.0, _imageSize.height - srcHeight);
 
-    final imageX = (srcX + (screenPosition.dx - baseOffsetX) / baseWidth * srcWidth).clamp(0.0, _imageSize.width.toDouble());
-    final imageY = (srcY + (screenPosition.dy - baseOffsetY) / baseHeight * srcHeight).clamp(0.0, _imageSize.height.toDouble());
+    final imageX =
+        (srcX + (screenPosition.dx - baseOffsetX) / baseWidth * srcWidth).clamp(
+          0.0,
+          _imageSize.width.toDouble(),
+        );
+    final imageY =
+        (srcY + (screenPosition.dy - baseOffsetY) / baseHeight * srcHeight)
+            .clamp(0.0, _imageSize.height.toDouble());
 
     return Offset(imageX.toDouble(), imageY.toDouble());
   }
@@ -213,8 +242,6 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
   void _onTap(Offset position, BoxConstraints constraints) {
     final imagePos = _screenToImageCoordinates(position, constraints);
 
-    // AI segmentation mode: first tap = positive point (create mask)
-    // Subsequent taps ON the mask = negative point (exclude from mask)
     if (widget.isSegmentationModeActive) {
       if (widget.aiMask != null &&
           widget.aiMask!.isNotEmpty &&
@@ -332,6 +359,9 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
   }
 }
 
+// ============================================================================
+//  PAINTER С ОТЛАДОЧНЫМ ТЕКСТОМ
+// ============================================================================
 class _SelectionCanvasPainter extends CustomPainter {
   final ui.Image? image;
   final Uint8List selectionMask;
@@ -388,8 +418,15 @@ class _SelectionCanvasPainter extends CustomPainter {
     final pixelsPerImageX = srcWidth / baseWidth;
     final pixelsPerImageY = srcHeight / baseHeight;
 
-    final srcX = ((imageSize.width - srcWidth) / 2 - currentOffset.dx * pixelsPerImageX).clamp(0.0, imageSize.width - srcWidth).toDouble();
-    final srcY = ((imageSize.height - srcHeight) / 2 - currentOffset.dy * pixelsPerImageY).clamp(0.0, imageSize.height - srcHeight).toDouble();
+    final srcX =
+        ((imageSize.width - srcWidth) / 2 - currentOffset.dx * pixelsPerImageX)
+            .clamp(0.0, imageSize.width - srcWidth)
+            .toDouble();
+    final srcY =
+        ((imageSize.height - srcHeight) / 2 -
+                currentOffset.dy * pixelsPerImageY)
+            .clamp(0.0, imageSize.height - srcHeight)
+            .toDouble();
 
     final imagePaint = Paint();
     canvas.drawImageRect(
@@ -418,6 +455,42 @@ class _SelectionCanvasPainter extends CustomPainter {
         srcHeight,
       );
     }
+
+    // ============================================================
+    //  ОТЛАДОЧНЫЙ ТЕКСТ: показывает информацию о AI маске
+    // ============================================================
+    if (aiMask != null && aiMask!.isNotEmpty) {
+      final ones = aiMask!.where((v) => v == 1).length;
+      final textSpan = TextSpan(
+        text: 'AI Mask: ${aiMask!.length} пикселей, единиц = $ones',
+        style: const TextStyle(
+          color: Colors.yellow,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+        ),
+      );
+      final textPainter = TextPainter(
+        text: textSpan,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: size.width - 20);
+      textPainter.paint(canvas, const Offset(10, 10));
+    } else {
+      const textSpan = TextSpan(
+        text: 'AI Mask: NULL или пустая',
+        style: TextStyle(
+          color: Colors.red,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+        ),
+      );
+      final textPainter = TextPainter(
+        text: textSpan,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: size.width - 20);
+      textPainter.paint(canvas, const Offset(10, 10));
+    }
   }
 
   void _drawSelectionOverlay(
@@ -440,7 +513,9 @@ class _SelectionCanvasPainter extends CustomPainter {
     final visibleHeight = srcHeight;
 
     final overlayPaint = Paint()
-      ..color = Colors.blue.withValues(alpha: 0.3 * (0.5 + 0.5 * maskAnimationValue))
+      ..color = Colors.blue.withValues(
+        alpha: 0.3 * (0.5 + 0.5 * maskAnimationValue),
+      )
       ..style = PaintingStyle.fill;
 
     for (int y = 0; y < imgHeight; y += 4) {
@@ -517,7 +592,7 @@ class _SelectionCanvasPainter extends CustomPainter {
       }
     }
 
-    // Draw AI mask overlay (light blue transparent)
+    // AI mask overlay (light blue)
     if (aiMask != null && aiMask!.isNotEmpty) {
       final aiMaskPaint = Paint()
         ..color = const Color(0xFF6495ED).withValues(alpha: 0.35)
@@ -526,7 +601,10 @@ class _SelectionCanvasPainter extends CustomPainter {
         if (y < srcY || y >= srcY + visibleHeight) continue;
         int x = 0;
         while (x < imgWidth) {
-          if (x < srcX) { x++; continue; }
+          if (x < srcX) {
+            x++;
+            continue;
+          }
           if (x >= srcX + visibleWidth) break;
           while (x < imgWidth) {
             if (x >= srcX + visibleWidth) break;
@@ -553,34 +631,42 @@ class _SelectionCanvasPainter extends CustomPainter {
           );
         }
       }
+    }
 
-      // Draw positive points (green)
-      final greenDotPaint = Paint()
-        ..color = const Color(0xFF4CAF50)
-        ..style = PaintingStyle.fill;
-      for (final point in positivePoints) {
-        final screenX = offsetX + (point.dx - srcX) * scaleX;
-        final screenY = offsetY + (point.dy - srcY) * scaleY;
-        canvas.drawCircle(Offset(screenX, screenY), 8.0, greenDotPaint);
-        canvas.drawCircle(Offset(screenX, screenY), 8.0, Paint()
+    // Positive points (green)
+    final greenDotPaint = Paint()
+      ..color = const Color(0xFF4CAF50)
+      ..style = PaintingStyle.fill;
+    for (final point in positivePoints) {
+      final screenX = offsetX + (point.dx - srcX) * scaleX;
+      final screenY = offsetY + (point.dy - srcY) * scaleY;
+      canvas.drawCircle(Offset(screenX, screenY), 8.0, greenDotPaint);
+      canvas.drawCircle(
+        Offset(screenX, screenY),
+        8.0,
+        Paint()
           ..color = Colors.white
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.0);
-      }
+          ..strokeWidth = 2.0,
+      );
+    }
 
-      // Draw negative points (red)
-      final redDotPaint = Paint()
-        ..color = const Color(0xFFF44336)
-        ..style = PaintingStyle.fill;
-      for (final point in negativePoints) {
-        final screenX = offsetX + (point.dx - srcX) * scaleX;
-        final screenY = offsetY + (point.dy - srcY) * scaleY;
-        canvas.drawCircle(Offset(screenX, screenY), 8.0, redDotPaint);
-        canvas.drawCircle(Offset(screenX, screenY), 8.0, Paint()
+    // Negative points (red)
+    final redDotPaint = Paint()
+      ..color = const Color(0xFFF44336)
+      ..style = PaintingStyle.fill;
+    for (final point in negativePoints) {
+      final screenX = offsetX + (point.dx - srcX) * scaleX;
+      final screenY = offsetY + (point.dy - srcY) * scaleY;
+      canvas.drawCircle(Offset(screenX, screenY), 8.0, redDotPaint);
+      canvas.drawCircle(
+        Offset(screenX, screenY),
+        8.0,
+        Paint()
           ..color = Colors.white
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.0);
-      }
+          ..strokeWidth = 2.0,
+      );
     }
   }
 

@@ -18,38 +18,61 @@ import 'camera_page.dart';
 import 'export_screen.dart';
 import 'projects_screen.dart';
 
+// ============================================================================
+//  ОТЛАДОЧНАЯ ФУНКЦИЯ НОРМАЛИЗАЦИИ МАСКИ (ДОБАВЛЕНЫ PRINT)
+// ============================================================================
 Future<Uint8List?> _normalizePngMaskToBinary(List<dynamic> args) async {
   final Uint8List pngBytes = args[0] as Uint8List;
+  print('📥 [normalize] Получено ${pngBytes.length} байт PNG');
+
   try {
     final codec = await ui.instantiateImageCodec(pngBytes);
     final frame = await codec.getNextFrame();
-    final byteData = await frame.image.toByteData(format: ui.ImageByteFormat.png);
-    if (byteData == null) return null;
-    final pixels = byteData.buffer.asUint8List();
     final width = frame.image.width;
     final height = frame.image.height;
+    print('📐 [normalize] Размер маски: $width x $height');
+
+    final byteData = await frame.image.toByteData(
+      format: ui.ImageByteFormat.png,
+    );
+    if (byteData == null) {
+      print('❌ [normalize] byteData == null');
+      return null;
+    }
+
+    final pixels = byteData.buffer.asUint8List();
     final result = Uint8List(width * height);
+
+    int whiteCount = 0;
     for (int i = 0; i < result.length; i++) {
       final idx = i * 4;
       if (idx + 3 < pixels.length) {
-        // PNG grayscale mode: all channels have same value
-        // Check if pixel is white (part of mask) or any channel value
         result[i] = pixels[idx] > 128 ? 1 : 0;
+        if (result[i] == 1) whiteCount++;
       } else if (idx < pixels.length) {
         result[i] = pixels[idx] > 128 ? 1 : 0;
+        if (result[i] == 1) whiteCount++;
       } else {
         result[i] = 0;
       }
     }
+
+    print(
+      '✅ [normalize] Белых пикселей в маске: $whiteCount из ${width * height}',
+    );
     return result;
   } catch (e) {
-    debugPrint('Error normalizing mask: $e');
+    print('❌ [normalize] Ошибка: $e');
     return null;
   }
 }
 
-// top-level function for compute isolate (must be a static/top-level function for compute)
-Future<Map<String, dynamic>?> _analyzeSelectionBrightnessStatic(List<dynamic> args) async {
+// ============================================================================
+//  АНАЛИЗ ЯРКОСТИ (БЕЗ ИЗМЕНЕНИЙ)
+// ============================================================================
+Future<Map<String, dynamic>?> _analyzeSelectionBrightnessStatic(
+  List<dynamic> args,
+) async {
   final Uint8List imageBytes = args[0] as Uint8List;
   final Uint8List analysisMask = args[1] as Uint8List;
 
@@ -68,9 +91,7 @@ Future<Map<String, dynamic>?> _analyzeSelectionBrightnessStatic(List<dynamic> ar
       return null;
     }
 
-    final byteData = await image.toByteData(
-      format: ui.ImageByteFormat.png,
-    );
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     if (byteData == null) return null;
 
     final pixels = byteData.buffer.asUint8List();
@@ -121,11 +142,14 @@ Future<Map<String, dynamic>?> _analyzeSelectionBrightnessStatic(List<dynamic> ar
     final meanB = (totalBlue / totalSelectedPixels).round();
 
     String dominantType;
-    if (darkPixelCount > brightPixelCount && darkPixelCount > mediumPixelCount) {
+    if (darkPixelCount > brightPixelCount &&
+        darkPixelCount > mediumPixelCount) {
       dominantType = 'dark';
-    } else if (brightPixelCount > darkPixelCount && brightPixelCount > mediumPixelCount) {
+    } else if (brightPixelCount > darkPixelCount &&
+        brightPixelCount > mediumPixelCount) {
       dominantType = 'bright';
-    } else if (mediumPixelCount > darkPixelCount && mediumPixelCount > brightPixelCount) {
+    } else if (mediumPixelCount > darkPixelCount &&
+        mediumPixelCount > brightPixelCount) {
       dominantType = 'medium';
     } else {
       dominantType = 'mixed';
@@ -143,6 +167,9 @@ Future<Map<String, dynamic>?> _analyzeSelectionBrightnessStatic(List<dynamic> ar
   }
 }
 
+// ============================================================================
+//  ОСНОВНОЙ ВИДЖЕТ РЕДАКТОРА
+// ============================================================================
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key});
 
@@ -205,9 +232,18 @@ class _EditorScreenState extends State<EditorScreen>
                 final imageBytes = appState.capturedImage;
                 final previewBytes = appState.previewImage;
                 final displayBytes = previewBytes ?? imageBytes;
-                
-if (imageBytes == null) {
+
+                if (imageBytes == null) {
                   return const _EmptyCanvasPlaceholder();
+                }
+
+                // ОТЛАДКА: выводим состояние маски
+                if (_currentAiMask != null) {
+                  print(
+                    '🖼️ [build] _currentAiMask не null, длина: ${_currentAiMask!.length}',
+                  );
+                } else {
+                  print('🖼️ [build] _currentAiMask == null');
                 }
 
                 return RepaintBoundary(
@@ -216,7 +252,11 @@ if (imageBytes == null) {
                     child: SelectionCanvas(
                       key: const ValueKey('selection_canvas'),
                       imageBytes: displayBytes!,
-                      selectionMask: (appState.isPreviewMode && appState.previewImage != null) ? Uint8List(0) : appState.selectionMask,
+                      selectionMask:
+                          (appState.isPreviewMode &&
+                              appState.previewImage != null)
+                          ? Uint8List(0)
+                          : appState.selectionMask,
                       currentTool: _selectedTool,
                       brushSize: _brushSize,
                       lassoPoints: const [],
@@ -249,7 +289,7 @@ if (imageBytes == null) {
               },
             ),
           ),
-          // Top toolbar — extracted to own widget to avoid canvas rebuilds
+          // Top toolbar
           _EditorTopToolbar(
             onBackToCamera: () => _onBackToCamera(context),
             onUndo: () => context.read<AppState>().undo(),
@@ -259,17 +299,16 @@ if (imageBytes == null) {
               AppTransitions.fadeRoute(const ProjectsScreen()),
             ),
           ),
-          // Bottom panel — state method for direct access to stateful FAB
+          // Bottom panel
           _buildBottomPanel(),
         ],
       ),
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ==========================================================================
   // BOTTOM PANEL
-  // ═══════════════════════════════════════════════════════════════════════════
-
+  // ==========================================================================
   Widget _buildBottomPanel() {
     return Align(
       alignment: Alignment.bottomCenter,
@@ -319,13 +358,18 @@ if (imageBytes == null) {
                 const SizedBox(width: 24),
                 _BottomAction(
                   child: Icon(
-                    _currentAiMask != null ? Icons.check_circle : Icons.visibility,
+                    _currentAiMask != null
+                        ? Icons.check_circle
+                        : Icons.visibility,
                     size: 26,
-                    color: _currentAiMask != null ? const Color(0xFFFFC107) : Colors.white,
+                    color: _currentAiMask != null
+                        ? const Color(0xFFFFC107)
+                        : Colors.white,
                   ),
                   label: _currentAiMask != null ? 'Перекрасить' : 'Превью',
                   onTap: () {
-                    if (_currentAiMask != null && _segPositivePoints.isNotEmpty) {
+                    if (_currentAiMask != null &&
+                        _segPositivePoints.isNotEmpty) {
                       _runAiRecolor();
                     } else {
                       _applyRecoloring(context);
@@ -340,10 +384,9 @@ if (imageBytes == null) {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ==========================================================================
   // AUTO-SEGMENTATION FAB
-  // ═══════════════════════════════════════════════════════════════════════════
-
+  // ==========================================================================
   Widget _buildAutoSegmentationFAB() {
     final bool isActive = _isSegmentationModeActive;
 
@@ -405,7 +448,9 @@ if (imageBytes == null) {
                   boxShadow: isActive
                       ? [
                           BoxShadow(
-                            color: const Color(0xFFFFC107).withValues(alpha: 0.5),
+                            color: const Color(
+                              0xFFFFC107,
+                            ).withValues(alpha: 0.5),
                             blurRadius: 20,
                             spreadRadius: 4,
                           ),
@@ -442,27 +487,44 @@ if (imageBytes == null) {
     );
   }
 
-    Future<void> _handleAutoSegmentation(Offset imagePosition) async {
+  // ==========================================================================
+  //  ОБРАБОТЧИК АВТОСЕГМЕНТАЦИИ (ДОБАВЛЕНЫ PRINT)
+  // ==========================================================================
+  Future<void> _handleAutoSegmentation(Offset imagePosition) async {
     final appState = context.read<AppState>();
 
-    if (appState.isLoading) return;
+    if (appState.isLoading) {
+      print('⏳ [seg] Уже идёт загрузка, пропускаем');
+      return;
+    }
 
+    print(
+      '👆 [seg] Тап по координатам: ${imagePosition.dx.round()}, ${imagePosition.dy.round()}',
+    );
     appState.setLoading(true);
 
     try {
       final imageBytes = appState.capturedImage;
-      if (imageBytes == null) return;
+      if (imageBytes == null) {
+        print('❌ [seg] Нет изображения');
+        return;
+      }
 
       final codec = await ui.instantiateImageCodec(imageBytes);
       final frame = await codec.getNextFrame();
       final int imageWidth = frame.image.width;
       final int imageHeight = frame.image.height;
+      print('📐 [seg] Размер изображения: $imageWidth x $imageHeight');
 
       setState(() {
         _segPositivePoints.add(imagePosition);
         _segNegativePoints.clear();
+        print(
+          '➕ [seg] Добавлена положительная точка, всего: ${_segPositivePoints.length}',
+        );
       });
 
+      print('📤 [seg] Отправка запроса к серверу...');
       final maskBytes = await _segmentationService.getMask(
         imageBytes: imageBytes,
         positivePoint: imagePosition,
@@ -471,22 +533,42 @@ if (imageBytes == null) {
         imageHeight: imageHeight,
       );
 
+      print(
+        '📥 [seg] Получен ответ, maskBytes = ${maskBytes?.length ?? 'null'} байт',
+      );
+
       if (mounted && maskBytes != null) {
-        final normalizedMask = await compute(_normalizePngMaskToBinary, [maskBytes]);
+        print('🔄 [seg] Запуск нормализации через compute...');
+        final normalizedMask = await compute(_normalizePngMaskToBinary, [
+          maskBytes,
+        ]);
+
         if (normalizedMask != null) {
+          print('✅ [seg] Маска нормализована, длина: ${normalizedMask.length}');
+          // Проверим, есть ли единицы
+          int ones = normalizedMask.where((v) => v == 1).length;
+          print('🔢 [seg] Количество единиц в маске: $ones');
           setState(() {
             _currentAiMask = normalizedMask;
+            print('🔄 [seg] setState: _currentAiMask установлен');
           });
           appState.setAiMask(normalizedMask);
+        } else {
+          print('❌ [seg] normalize вернул null');
         }
+      } else {
+        print('❌ [seg] maskBytes == null или mounted == false');
       }
     } catch (e) {
-      debugPrint('Ошибка сегментации: $e');
+      print('❌ [seg] Ошибка: $e');
     } finally {
       appState.setLoading(false);
     }
   }
 
+  // ==========================================================================
+  //  ОБРАБОТЧИК ДОБАВЛЕНИЯ ОТРИЦАТЕЛЬНЫХ ТОЧЕК
+  // ==========================================================================
   Future<void> _handleAiMaskExclusionTap(Offset imagePosition) async {
     final appState = context.read<AppState>();
 
@@ -516,7 +598,9 @@ if (imageBytes == null) {
       );
 
       if (mounted && maskBytes != null) {
-        final normalizedMask = await compute(_normalizePngMaskToBinary, [maskBytes]);
+        final normalizedMask = await compute(_normalizePngMaskToBinary, [
+          maskBytes,
+        ]);
         if (normalizedMask != null) {
           setState(() {
             _currentAiMask = normalizedMask;
@@ -531,7 +615,9 @@ if (imageBytes == null) {
     }
   }
 
-  /// Runs AI recolor with current segmentation points
+  // ==========================================================================
+  //  AI ПЕРЕКРАСКА
+  // ==========================================================================
   Future<void> _runAiRecolor() async {
     final appState = context.read<AppState>();
 
@@ -588,8 +674,9 @@ if (imageBytes == null) {
     }
   }
 
-  /// Показывает красивое уведомление об успешной сегментации
-  /// Стиль соответствует дизайну приложения (тёмная тема, акцентный цвет)
+  // ==========================================================================
+  //  ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (БЕЗ ИЗМЕНЕНИЙ)
+  // ==========================================================================
   void _showSuccessSnackBar(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -618,16 +705,9 @@ if (imageBytes == null) {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // BRIGHTNESS ANALYSIS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /// Анализирует выделенную область и определяет её яркость и цветовые характеристики
-  /// Возвращает Map с ключами:
-  ///   - 'dominantType': 'dark', 'bright', 'medium', 'mixed'
-  ///   - 'meanR', 'meanG', 'meanB': средний цвет
-  ///   - 'colorThreshold': порог цветового расстояния для фильтрации
-  Future<Map<String, dynamic>?> _analyzeSelectionBrightness({Uint8List? mask}) async {
+  Future<Map<String, dynamic>?> _analyzeSelectionBrightness({
+    Uint8List? mask,
+  }) async {
     final appState = context.read<AppState>();
     final imageBytes = appState.capturedImage;
     final analysisMask = mask ?? appState.selectionMask;
@@ -636,10 +716,10 @@ if (imageBytes == null) {
       return null;
     }
     try {
-      final result = await compute(
-        _analyzeSelectionBrightnessStatic,
-        [imageBytes, analysisMask],
-      );
+      final result = await compute(_analyzeSelectionBrightnessStatic, [
+        imageBytes,
+        analysisMask,
+      ]);
       if (result == null) {
         debugPrint('[BrightnessAnalysis] Ошибка анализа');
       }
@@ -649,10 +729,6 @@ if (imageBytes == null) {
       return null;
     }
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // NAVIGATION / ACTION HELPERS
-  // ═══════════════════════════════════════════════════════════════════════════
 
   void _showColorPicker(BuildContext context) async {
     final appState = context.read<AppState>();
@@ -703,19 +779,26 @@ if (imageBytes == null) {
       final colorThreshold = analysisResult['colorThreshold'] as int;
 
       final useScreenFilter = dominantType == 'dark';
-      final useOverlay = dominantType == 'bright' || dominantType == 'medium' || dominantType == 'mixed';
+      final useOverlay =
+          dominantType == 'bright' ||
+          dominantType == 'medium' ||
+          dominantType == 'mixed';
 
       Uint8List? textureBytes;
       if (appState.selectedWoodTexture != null) {
         try {
-          final byteData = await rootBundle.load('assets/textures/${appState.selectedWoodTexture}.png');
+          final byteData = await rootBundle.load(
+            'assets/textures/${appState.selectedWoodTexture}.png',
+          );
           textureBytes = byteData.buffer.asUint8List();
         } catch (e) {
           debugPrint('Error loading wood texture: $e');
         }
       } else if (appState.selectedMetalTexture != null) {
         try {
-          final byteData = await rootBundle.load('assets/textures/${appState.selectedMetalTexture}.png');
+          final byteData = await rootBundle.load(
+            'assets/textures/${appState.selectedMetalTexture}.png',
+          );
           textureBytes = byteData.buffer.asUint8List();
         } catch (e) {
           debugPrint('Error loading metal texture: $e');
@@ -758,9 +841,7 @@ if (imageBytes == null) {
     final appState = context.read<AppState>();
     final result = await Navigator.push(
       context,
-      AppTransitions.fadeRoute(
-        const ColorPaletteScreen(),
-      ),
+      AppTransitions.fadeRoute(const ColorPaletteScreen()),
     );
     if (!mounted) return;
     if (result != null) {
@@ -785,7 +866,6 @@ if (imageBytes == null) {
       return;
     }
 
-    // Анализируем яркость и цвет выделенной области для выбора метода перекраски
     final analysisResult = await _analyzeSelectionBrightness();
 
     if (analysisResult == null) {
@@ -805,9 +885,6 @@ if (imageBytes == null) {
     final meanB = analysisResult['meanB'] as int;
     final colorThreshold = analysisResult['colorThreshold'] as int;
 
-    // Определяем, какой метод перекраски использовать
-    // Если доминируют тёмные пиксели → SCREEN фильтр для всех
-    // Если доминируют яркие/средние → OVERLAY для всех
     final useScreenFilter = dominantType == 'dark';
     final useOverlay =
         dominantType == 'bright' ||
@@ -893,10 +970,6 @@ if (imageBytes == null) {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // INLINE TOOLBAR HELPERS (called from _EditorTopToolbar via context.read)
-  // ═══════════════════════════════════════════════════════════════════════════
-
   void _onBackToCamera(BuildContext context) {
     final appState = context.read<AppState>();
     appState.setCapturedImage(null);
@@ -917,11 +990,9 @@ if (imageBytes == null) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// EXTRACTED WIDGETS — isolated rebuild scopes
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Placeholder shown when no image is captured — const widget, never rebuilds
+// ============================================================================
+//  ВСПОМОГАТЕЛЬНЫЕ ВИДЖЕТЫ (БЕЗ ИЗМЕНЕНИЙ)
+// ============================================================================
 class _EmptyCanvasPlaceholder extends StatelessWidget {
   const _EmptyCanvasPlaceholder();
 
@@ -936,7 +1007,6 @@ class _EmptyCanvasPlaceholder extends StatelessWidget {
   }
 }
 
-/// Top toolbar — separate widget so it never triggers canvas rebuilds
 class _EditorTopToolbar extends StatelessWidget {
   final VoidCallback onBackToCamera;
   final VoidCallback onUndo;
@@ -969,7 +1039,6 @@ class _EditorTopToolbar extends StatelessWidget {
   }
 }
 
-/// Icon button for the top toolbar
 class _TopIconBtn extends StatelessWidget {
   final String assetPath;
   final VoidCallback onTap;
@@ -997,7 +1066,6 @@ class _TopIconBtn extends StatelessWidget {
   }
 }
 
-/// System icon button for the top toolbar
 class _TopSysBtn extends StatelessWidget {
   final IconData icon;
   final bool filled;
@@ -1021,7 +1089,6 @@ class _TopSysBtn extends StatelessWidget {
   }
 }
 
-/// Color preview circle — only rebuilds when selectedColor changes
 class _ColorPreviewWidget extends StatelessWidget {
   const _ColorPreviewWidget();
 
@@ -1036,7 +1103,6 @@ class _ColorPreviewWidget extends StatelessWidget {
   }
 }
 
-/// Reusable asset icon widget
 class _IconAssetWidget extends StatelessWidget {
   final String assetPath;
   final double size;
@@ -1053,7 +1119,6 @@ class _IconAssetWidget extends StatelessWidget {
   }
 }
 
-/// Bottom action button with icon and label
 class _BottomAction extends StatelessWidget {
   final Widget child;
   final String label;
@@ -1084,15 +1149,11 @@ class _BottomAction extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// ISOLATE HELPERS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// Helper for isolate recoloring
+// ============================================================================
+//  ISOLATE HELPER ДЛЯ ПЕРЕКРАСКИ
+// ============================================================================
 Uint8List _recolorIsolateFunction(_RecolorParams params) {
-  // Choose method based on brightness analysis
   if (params.useScreenFilter) {
-    // Use SCREEN filter for all pixels (for dark-dominant objects)
     return ImageProcessingService.recolorAllWithScreen(
       imageBytes: params.imageBytes,
       width: params.width,
@@ -1105,8 +1166,6 @@ Uint8List _recolorIsolateFunction(_RecolorParams params) {
       blendFactor: params.blendFactor,
     );
   } else if (params.useOverlay) {
-    // Use OVERLAY from grayscale for bright/medium objects
-    // Converts to grayscale first (preserves texture), then applies overlay color
     return ImageProcessingService.recolorBrightWithOverlayFromGrayscale(
       imageBytes: params.imageBytes,
       width: params.width,
@@ -1119,7 +1178,6 @@ Uint8List _recolorIsolateFunction(_RecolorParams params) {
       woodTextureBytes: params.woodTextureBytes,
     );
   } else {
-    // Fallback to standard mixed method
     return ImageProcessingService.recolorImage(
       imageBytes: params.imageBytes,
       width: params.width,
@@ -1168,5 +1226,3 @@ class _RecolorParams {
     this.blendFactor = 1.0,
   });
 }
-
-
