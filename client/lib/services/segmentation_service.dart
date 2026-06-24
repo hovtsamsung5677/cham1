@@ -86,6 +86,9 @@ class SegmentationService {
     }
   }
 
+  /// Отправляет запрос на перекраску.
+  /// [maskB64] — опциональная готовая маска в base64 (полученная от getMask).
+  /// Если маска передана, координаты точки игнорируются (сервер пропустит SAM2).
   Future<Uint8List?> segmentObject({
     required Uint8List imageBytes,
     required Offset imagePosition,
@@ -95,6 +98,7 @@ class SegmentationService {
     required int colorHex,
     double gloss = -1.0,
     double strength = 1.0,
+    String? maskB64, // <-- НОВЫЙ ПАРАМЕТР
   }) async {
     try {
       final int rgbValue = colorHex & 0xFFFFFF;
@@ -102,6 +106,7 @@ class SegmentationService {
         'POST',
         Uri.parse('$serverUrl/ai-recolor'),
       );
+
       request.files.add(
         http.MultipartFile.fromBytes(
           'image',
@@ -110,8 +115,20 @@ class SegmentationService {
           contentType: MediaType('image', 'jpeg'),
         ),
       );
-      request.fields['point_x'] = imagePosition.dx.round().toString();
-      request.fields['point_y'] = imagePosition.dy.round().toString();
+
+      // Если передана маска — отправляем её, координаты не нужны
+      if (maskB64 != null && maskB64.isNotEmpty) {
+        request.fields['mask_b64'] = maskB64;
+        // point_x и point_y можно не отправлять — на сервере они имеют значения по умолчанию 0
+        // но если сервер требует их (как Form), то лучше отправить фиктивные 0
+        request.fields['point_x'] = '0';
+        request.fields['point_y'] = '0';
+      } else {
+        // Иначе отправляем координаты точки для запуска SAM2
+        request.fields['point_x'] = imagePosition.dx.round().toString();
+        request.fields['point_y'] = imagePosition.dy.round().toString();
+      }
+
       request.fields['material'] = material;
       request.fields['color_hex'] =
           '0x${rgbValue.toRadixString(16).padLeft(6, '0')}';
@@ -139,6 +156,7 @@ class SegmentationService {
     }
   }
 
+  // Вспомогательные методы (не используются, но оставлены для совместимости)
   List<List<int>> _rleDecode(Map<String, dynamic> rle, int width, int height) {
     final List<int> counts = List<int>.from(rle['counts']);
     final List<List<int>> mask = List.generate(

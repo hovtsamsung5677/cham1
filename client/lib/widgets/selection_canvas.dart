@@ -459,19 +459,49 @@ class _SelectionCanvasPainter extends CustomPainter {
 
     // Draw AI mask overlay (independent of selectionMask)
     if (aiMask != null && aiMask!.isNotEmpty) {
-      _drawAiMaskOverlay(
-        canvas,
-        baseOffsetX,
-        baseOffsetY,
-        baseWidth,
-        baseHeight,
-        scaleX,
-        scaleY,
-        srcX,
-        srcY,
-        srcWidth,
-        srcHeight,
-      );
+      final aiMaskPaint = Paint()
+        ..color = const Color(0xFF6495ED).withValues(alpha: 0.35)
+        ..style = PaintingStyle.fill;
+      final int imgWidth = imageSize.width.toInt();
+      final int imgHeight = imageSize.height.toInt();
+      final double visibleWidth = srcWidth;
+      final double visibleHeight = srcHeight;
+      final double offsetX = baseOffsetX;
+      final double offsetY = baseOffsetY;
+      for (int y = 0; y < imgHeight; y += 4) {
+        if (y < srcY || y >= srcY + visibleHeight) continue;
+        int x = 0;
+        while (x < imgWidth) {
+          if (x < srcX) {
+            x++;
+            continue;
+          }
+          if (x >= srcX + visibleWidth) break;
+          while (x < imgWidth) {
+            if (x >= srcX + visibleWidth) break;
+            final idx = y * imgWidth + x;
+            if (idx < aiMask!.length && aiMask![idx] == 1) break;
+            x++;
+          }
+          if (x >= imgWidth || x >= srcX + visibleWidth) break;
+          int startX = x;
+          while (x < imgWidth) {
+            if (x >= srcX + visibleWidth) break;
+            final idx = y * imgWidth + x;
+            if (idx >= aiMask!.length || aiMask![idx] != 1) break;
+            x++;
+          }
+          int endX = x - 1;
+          final double screenX = offsetX + (startX - srcX) * scaleX;
+          final double screenY = offsetY + (y - srcY) * scaleY;
+          final double screenWidth = (endX - startX + 1) * scaleX;
+          final double screenHeight = scaleY * 4;
+          canvas.drawRect(
+            Rect.fromLTWH(screenX, screenY, screenWidth, screenHeight),
+            aiMaskPaint,
+          );
+        }
+      }
     }
 
     // ============================================================

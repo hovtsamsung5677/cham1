@@ -391,11 +391,7 @@ class _EditorScreenState extends State<EditorScreen>
                   ),
                   const SizedBox(width: 24),
                   _BottomAction(
-                    child: Icon(
-                      Icons.brush,
-                      size: 26,
-                      color: Colors.white,
-                    ),
+                    child: Icon(Icons.brush, size: 26, color: Colors.white),
                     label: 'Блеск',
                     onTap: () => _showGlossSlider(context),
                   ),
@@ -407,7 +403,10 @@ class _EditorScreenState extends State<EditorScreen>
               GestureDetector(
                 onTap: _runAiRecolor,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFFC107),
                     borderRadius: BorderRadius.circular(24),
@@ -435,15 +434,6 @@ class _EditorScreenState extends State<EditorScreen>
       ),
     );
   }
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // ==========================================================================
   // AUTO-SEGMENTATION FAB
@@ -458,7 +448,8 @@ class _EditorScreenState extends State<EditorScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (_currentAiMask != null && editorState == EditorScreenState.idle) ...[
+          if (_currentAiMask != null &&
+              editorState == EditorScreenState.idle) ...[
             GestureDetector(
               onTap: () {
                 setState(() {
@@ -620,7 +611,9 @@ class _EditorScreenState extends State<EditorScreen>
           ]);
 
           if (normalizedMask != null) {
-            print('✅ [seg] Маска нормализована, длина: ${normalizedMask.length}');
+            print(
+              '✅ [seg] Маска нормализована, длина: ${normalizedMask.length}',
+            );
             int ones = normalizedMask.where((v) => v == 1).length;
             print('🔢 [seg] Количество единиц в маске: $ones');
             setState(() {
@@ -709,7 +702,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   // ==========================================================================
-  //  AI ПЕРЕКРАСКА
+  //  AI ПЕРЕКРАСКА (ИЗМЕНЕНО: добавлен maskB64)
   // ==========================================================================
   Future<void> _runAiRecolor() async {
     final appState = context.read<AppState>();
@@ -730,6 +723,7 @@ class _EditorScreenState extends State<EditorScreen>
       final int imageWidth = frame.image.width;
       final int imageHeight = frame.image.height;
 
+      // ИЗМЕНЕНИЕ: передаём maskB64
       final resultBytes = await _segmentationService.segmentObject(
         imageBytes: imageBytes,
         imagePosition: _segPositivePoints.first,
@@ -739,6 +733,7 @@ class _EditorScreenState extends State<EditorScreen>
         colorHex: appState.selectedColor.value,
         gloss: appState.glossLevel,
         strength: 1.0,
+        maskB64: _currentMaskB64, // <-- добавлено
       );
 
       if (mounted && resultBytes != null) {
@@ -894,12 +889,12 @@ class _EditorScreenState extends State<EditorScreen>
                 tempGloss <= 0.0
                     ? 'Без блеска'
                     : tempGloss < 0.3
-                        ? 'Матовый'
-                        : tempGloss < 0.6
-                            ? 'Полуматовый'
-                            : tempGloss < 0.8
-                                ? 'Полуглянцевый'
-                                : 'Глянцевый',
+                    ? 'Матовый'
+                    : tempGloss < 0.6
+                    ? 'Полуматовый'
+                    : tempGloss < 0.8
+                    ? 'Полуглянцевый'
+                    : 'Глянцевый',
                 style: const TextStyle(color: Colors.white70),
               ),
               Slider(
@@ -1339,12 +1334,12 @@ class _GlossIndicator extends StatelessWidget {
     final label = gloss <= 0.0
         ? 'Без блеска'
         : gloss < 0.3
-            ? 'Матовый'
-            : gloss < 0.6
-                ? 'Полуматовый'
-                : gloss < 0.8
-                    ? 'Полуглянцевый'
-                    : 'Глянцевый';
+        ? 'Матовый'
+        : gloss < 0.6
+        ? 'Полуматовый'
+        : gloss < 0.8
+        ? 'Полуглянцевый'
+        : 'Глянцевый';
     return Text(
       'Блеск: ${label} (${(gloss * 100).round()}%)',
       style: const TextStyle(color: Colors.white70, fontSize: 12),
