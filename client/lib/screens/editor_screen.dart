@@ -31,8 +31,12 @@ Future<Uint8List?> _normalizePngMaskToBinary(List<dynamic> args) async {
     final result = Uint8List(width * height);
     for (int i = 0; i < result.length; i++) {
       final idx = i * 4;
-      if (idx + 3 < pixels.length && pixels[idx + 3] > 128) {
-        result[i] = 1;
+      if (idx + 3 < pixels.length) {
+        // PNG grayscale mode: all channels have same value
+        // Check if pixel is white (part of mask) or any channel value
+        result[i] = pixels[idx] > 128 ? 1 : 0;
+      } else if (idx < pixels.length) {
+        result[i] = pixels[idx] > 128 ? 1 : 0;
       } else {
         result[i] = 0;
       }

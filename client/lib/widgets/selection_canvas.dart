@@ -224,7 +224,7 @@ class _SelectionCanvasState extends State<SelectionCanvas> with TickerProviderSt
         final px = imagePos.dx.round().clamp(0, imgWidth - 1);
         final py = imagePos.dy.round().clamp(0, imgHeight - 1);
         final idx = py * imgWidth + px;
-        if (idx < widget.aiMask!.length && widget.aiMask![idx] == 1) {
+        if (idx < widget.aiMask!.length && widget.aiMask![idx] > 0) {
           widget.onAiMaskTap!(imagePos);
           return;
         }
