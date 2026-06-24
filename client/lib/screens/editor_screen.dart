@@ -24,42 +24,37 @@ import 'projects_screen.dart';
 // ============================================================================
 Future<Uint8List?> _normalizePngMaskToBinary(List<dynamic> args) async {
   final Uint8List pngBytes = args[0] as Uint8List;
-  print('📥 [normalize] Получено ${pngBytes.length} байт PNG');
+  debugPrint('📥 [normalize] Получено ${pngBytes.length} байт PNG');
 
   try {
-    final codec = await ui.instantiateImageCodec(pngBytes);
-    final frame = await codec.getNextFrame();
-    final width = frame.image.width;
-    final height = frame.image.height;
-    print('📐 [normalize] Размер маски: $width x $height');
-
-    // Используем rawRgba для получения пиксельных данных
-    final byteData = await frame.image.toByteData(
-      format: ui.ImageByteFormat.rawRgba,
-    );
-    if (byteData == null) {
-      print('❌ [normalize] byteData == null');
+    final decoded = img.decodeImage(pngBytes);
+    if (decoded == null) {
+      debugPrint('❌ [normalize] Не удалось декодировать PNG');
       return null;
     }
 
-    final pixels = byteData.buffer.asUint8List();
-    final result = Uint8List(width * height);
+    final width = decoded.width;
+    final height = decoded.height;
+    debugPrint('📐 [normalize] Размер маски: $width x $height');
 
+    final result = Uint8List(width * height);
     int whiteCount = 0;
-    // rawRgba даёт RGBA (4 байта на пиксель), сервер возвращает grayscale
-    for (int i = 0; i < result.length; i++) {
-      final idx = i * 4;
-      final r = pixels[idx];
-      result[i] = r > 128 ? 1 : 0;
-      if (result[i] == 1) whiteCount++;
+
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final pixel = decoded.getPixel(x, y);
+        final val = pixel.r > 128 ? 1 : 0;
+        result[y * width + x] = val;
+        if (val == 1) whiteCount++;
+      }
     }
 
-    print(
+    debugPrint(
       '✅ [normalize] Белых пикселей в маске: $whiteCount из ${width * height}',
     );
     return result;
   } catch (e) {
-    print('❌ [normalize] Ошибка: $e');
+    debugPrint('❌ [normalize] Ошибка: $e');
     return null;
   }
 }
@@ -202,7 +197,9 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   void initState() {
     super.initState();
+    debugPrint('=== EditorScreen initState ===');
     _segmentationService = SegmentationService();
+    _checkServerConnection();
     _fabPulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -221,6 +218,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('🔄 [build] EditorScreen build, state=${context.read<AppState>().editorScreenState}');
     return Scaffold(
       backgroundColor: const Color(0xFF2C2C2E),
       body: Stack(
@@ -232,58 +230,65 @@ class _EditorScreenState extends State<EditorScreen>
               builder: (context, appState, child) {
                 final imageBytes = appState.capturedImage;
                 final previewBytes = appState.previewImage;
-                final displayBytes = previewBytes ?? imageBytes;
+                Uint8List? displayBytes = previewBytes ?? imageBytes;
+                if (appState.editorScreenState == EditorScreenState.maskPreview &&
+                    appState.aiMaskPreview != null) {
+                  displayBytes = appState.aiMaskPreview;
+                }
 
                 if (imageBytes == null) {
                   return const _EmptyCanvasPlaceholder();
                 }
 
                 if (_currentAiMask != null) {
-                  print(
+                  debugPrint(
                     '🖼️ [build] _currentAiMask не null, длина: ${_currentAiMask!.length}',
                   );
                 } else {
-                  print('🖼️ [build] _currentAiMask == null');
+                  debugPrint('🖼️ [build] _currentAiMask == null');
                 }
 
                 return RepaintBoundary(
                   child: MouseRegion(
                     cursor: SystemMouseCursors.basic,
-                    child: SelectionCanvas(
-                      key: const ValueKey('selection_canvas'),
-                      imageBytes: displayBytes!,
-                      selectionMask:
-                          (appState.isPreviewMode &&
-                              appState.previewImage != null)
-                          ? Uint8List(0)
-                          : appState.selectionMask,
-                      currentTool: _selectedTool,
-                      brushSize: _brushSize,
-                      lassoPoints: const [],
-                      polygonPoints: const [],
-                      rectanglePoints: const [],
-                      boundaryPoints: const [],
-                      onSelectionUpdate: appState.setSelectionMask,
-                      onLassoPointsUpdate: (_) {},
-                      onPolygonPointsUpdate: (_) {},
-                      onRectanglePointsUpdate: (_) {},
-                      onBoundaryStart: null,
-                      onBoundaryPoint: null,
-                      onBoundaryEnd: null,
-                      onDrawingStart: () {},
-                      onDrawingEnd: () {},
-                      onAutoSegmentTap:
-                          _selectedTool ==
-                                  SelectionTool.interactiveSegmentation &&
-                              _isSegmentationModeActive
-                          ? _handleAutoSegmentation
-                          : null,
-                      isSegmentationModeActive: _isSegmentationModeActive,
-                      aiMask: _currentAiMask,
-                      positivePoints: _segPositivePoints,
-                      negativePoints: _segNegativePoints,
-                      onAiMaskTap: _handleAiMaskExclusionTap,
-                    ),
+                      child: SelectionCanvas(
+                        key: const ValueKey('selection_canvas'),
+                        imageBytes: displayBytes!,
+                        selectionMask:
+                            (appState.isPreviewMode &&
+                                appState.previewImage != null)
+                            ? Uint8List(0)
+                            : appState.selectionMask,
+                        currentTool: _selectedTool,
+                        brushSize: _brushSize,
+                        lassoPoints: const [],
+                        polygonPoints: const [],
+                        rectanglePoints: const [],
+                        boundaryPoints: const [],
+                        onSelectionUpdate: appState.setSelectionMask,
+                        onLassoPointsUpdate: (_) {},
+                        onPolygonPointsUpdate: (_) {},
+                        onRectanglePointsUpdate: (_) {},
+                        onBoundaryStart: null,
+                        onBoundaryPoint: null,
+                        onBoundaryEnd: null,
+                        onDrawingStart: () {},
+                        onDrawingEnd: () {},
+                        onAutoSegmentTap:
+                            _selectedTool ==
+                                    SelectionTool.interactiveSegmentation &&
+                                _isSegmentationModeActive
+                            ? _handleAutoSegmentation
+                            : null,
+                        isSegmentationModeActive: _isSegmentationModeActive,
+                        aiMask: appState.editorScreenState ==
+                                    EditorScreenState.maskPreview
+                            ? null
+                            : _currentAiMask,
+                        positivePoints: _segPositivePoints,
+                        negativePoints: _segNegativePoints,
+                        onAiMaskTap: _handleAiMaskExclusionTap,
+                      ),
                   ),
                 );
               },
@@ -554,11 +559,11 @@ class _EditorScreenState extends State<EditorScreen>
     final appState = context.read<AppState>();
 
     if (appState.isLoading) {
-      print('⏳ [seg] Уже идёт загрузка, пропускаем');
+      debugPrint('⏳ [seg] Уже идёт загрузка, пропускаем');
       return;
     }
 
-    print(
+    debugPrint(
       '👆 [seg] Тап по координатам: ${imagePosition.dx.round()}, ${imagePosition.dy.round()}',
     );
     appState.setLoading(true);
@@ -566,7 +571,7 @@ class _EditorScreenState extends State<EditorScreen>
     try {
       final imageBytes = appState.capturedImage;
       if (imageBytes == null) {
-        print('❌ [seg] Нет изображения');
+        debugPrint('❌ [seg] Нет изображения');
         return;
       }
 
@@ -574,17 +579,26 @@ class _EditorScreenState extends State<EditorScreen>
       final frame = await codec.getNextFrame();
       final int imageWidth = frame.image.width;
       final int imageHeight = frame.image.height;
-      print('📐 [seg] Размер изображения: $imageWidth x $imageHeight');
+      debugPrint('📐 [seg] Размер изображения: $imageWidth x $imageHeight');
 
       setState(() {
         _segPositivePoints.add(imagePosition);
         _segNegativePoints.clear();
-        print(
+        debugPrint(
           '➕ [seg] Добавлена положительная точка, всего: ${_segPositivePoints.length}',
         );
       });
 
-      print('📤 [seg] Отправка запроса к серверу...');
+      debugPrint('📤 [seg] Отправка запроса к серверу...');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Отправка запроса на сервер...'),
+            backgroundColor: Color(0xFF2196F3),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
       final maskResponse = await _segmentationService.getMask(
         imageBytes: imageBytes,
         positivePoint: imagePosition,
@@ -593,7 +607,7 @@ class _EditorScreenState extends State<EditorScreen>
         imageHeight: imageHeight,
       );
 
-      print(
+      debugPrint(
         '📥 [seg] Получен ответ, maskResponse = ${maskResponse != null ? "not null" : "null"}',
       );
 
@@ -605,37 +619,46 @@ class _EditorScreenState extends State<EditorScreen>
           final maskBytes = base64Decode(maskB64);
           final previewBytes = base64Decode(previewB64);
 
-          print('🔄 [seg] Запуск нормализации через compute...');
+          debugPrint('🔄 [seg] Запуск нормализации через compute...');
           final normalizedMask = await compute(_normalizePngMaskToBinary, [
             maskBytes,
           ]);
 
           if (normalizedMask != null) {
-            print(
+            debugPrint(
               '✅ [seg] Маска нормализована, длина: ${normalizedMask.length}',
             );
             int ones = normalizedMask.where((v) => v == 1).length;
-            print('🔢 [seg] Количество единиц в маске: $ones');
+            debugPrint('🔢 [seg] Количество единиц в маске: $ones');
             setState(() {
               _currentAiMask = normalizedMask;
               _currentMaskB64 = maskB64;
               _currentPreviewB64 = previewB64;
-              print('🔄 [seg] setState: _currentAiMask установлен');
+              debugPrint('🔄 [seg] setState: _currentAiMask установлен');
             });
             appState.setAiMask(normalizedMask);
             appState.setAiMaskPreview(previewBytes);
             appState.setEditorScreenState(EditorScreenState.maskPreview);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Маска готова! Проверьте и подтвердите выделение.'),
+                  backgroundColor: Color(0xFF4CAF50),
+                  duration: Duration(seconds: 3),
+                ),
+              );
+            }
           } else {
-            print('❌ [seg] normalize вернул null');
+            debugPrint('❌ [seg] normalize вернул null');
           }
         } else {
-          print('❌ [seg] mask или preview отсутствуют в ответе');
+          debugPrint('❌ [seg] mask или preview отсутствуют в ответе');
         }
       } else {
-        print('❌ [seg] maskResponse == null или mounted == false');
+        debugPrint('❌ [seg] maskResponse == null или mounted == false');
       }
     } catch (e) {
-      print('❌ [seg] Ошибка: $e');
+      debugPrint('❌ [seg] Ошибка: $e');
     } finally {
       appState.setLoading(false);
     }
@@ -751,9 +774,17 @@ class _EditorScreenState extends State<EditorScreen>
           );
         }
       } else if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Ошибка AI перекраски')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Ошибка AI перекраски'),
+            action: SnackBarAction(
+              label: 'Детали',
+              onPressed: () {
+                debugPrint('Check logs for AI recolor error details');
+              },
+            ),
+          ),
+        );
         appState.setEditorScreenState(EditorScreenState.paramsSelect);
       }
     } catch (e) {
@@ -794,6 +825,20 @@ class _EditorScreenState extends State<EditorScreen>
   // ==========================================================================
   //  ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (БЕЗ ИЗМЕНЕНИЙ)
   // ==========================================================================
+  void _checkServerConnection() async {
+    final isAvailable = await _segmentationService.isServerAvailable();
+    debugPrint('🌐 Server available: $isAvailable');
+    if (!isAvailable && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Сервер недоступен. Проверьте подключение.'),
+          backgroundColor: Color(0xFFFF5722),
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
   void _showSuccessSnackBar(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1470,3 +1515,4 @@ class _RecolorParams {
     this.blendFactor = 1.0,
   });
 }
+

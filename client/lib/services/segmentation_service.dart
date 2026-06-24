@@ -142,12 +142,13 @@ class SegmentationService {
       debugPrint(
         'AI recolor response: status=${response.statusCode}, bytes=${response.bodyBytes.length}',
       );
+      debugPrint('AI recolor response body: ${response.body}');
 
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
         return Uint8List.fromList(response.bodyBytes);
       }
       debugPrint(
-        'AI recolor empty/invalid response: status=${response.statusCode}',
+        'AI recolor error response: status=${response.statusCode}, body=${response.body}',
       );
       return null;
     } catch (e) {

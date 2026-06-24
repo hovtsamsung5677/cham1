@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'models/app_state.dart';
@@ -10,6 +11,7 @@ import 'screens/export_screen.dart';
 import 'utils/transitions.dart';
 
 void main() {
+  debugPrint('=== APP STARTED ===');
   runApp(const FurnitureRecoloringApp());
 }
 
@@ -106,7 +108,7 @@ class _AppMaterialApp extends StatelessWidget {
             );
           case '/editor':
             return AppTransitions.rotateScaleRoute(const EditorScreen());
-case '/color_picker':
+          case '/color_picker':
              return AppTransitions.scaleRoute(
                ColorPickerScreen(
                  initialColor: const Color(0xFF8B4513),

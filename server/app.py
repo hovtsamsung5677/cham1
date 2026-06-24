@@ -1,5 +1,5 @@
 """
-AI-сервер для сегментации + перекраски с SAM-2 и адаптивным recoloring
+AI-сервер для сегментации + перекраски с SAM-2 и Intrinsic Decomposition
 """
 import logging
 import time
@@ -86,6 +86,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    logger.error(f"🔥 GLOBAL EXCEPTION: {exc}")
+    logger.error(traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "path": str(request.url)},
+    )
 
 _predictor = None
 _device = "cpu"
@@ -339,15 +348,18 @@ def recolor_intrinsic(image_pil, mask_pil, target_r, target_g, target_b,
             return image_pil
 
         t_r, t_g, t_b = target_r / 255.0, target_g / 255.0, target_b / 255.0
-        t_uint8 = np.array([[[int(t_r * 255), int(t_g * 255), int(t_b * 255)]]], dtype=np.uint8)
+        t_uint8 = np.array(
+            [[[int(t_r * 255), int(t_g * 255), int(t_b * 255)]]], dtype=np.uint8)
         t_lab = cv2.cvtColor(t_uint8, cv2.COLOR_RGB2LAB)[0, 0]
 
         mean_a = float(np.mean(albedo_lab[:, :, 1][mask_bool]))
         mean_b = float(np.mean(albedo_lab[:, :, 2][mask_bool]))
         delta_a = float(t_lab[1]) - mean_a
         delta_b = float(t_lab[2]) - mean_b
-        albedo_lab[:, :, 1] = np.clip(albedo_lab[:, :, 1].astype(np.float32) + delta_a, 0, 255).astype(np.uint8)
-        albedo_lab[:, :, 2] = np.clip(albedo_lab[:, :, 2].astype(np.float32) + delta_b, 0, 255).astype(np.uint8)
+        albedo_lab[:, :, 1] = np.clip(albedo_lab[:, :, 1].astype(
+            np.float32) + delta_a, 0, 255).astype(np.uint8)
+        albedo_lab[:, :, 2] = np.clip(albedo_lab[:, :, 2].astype(
+            np.float32) + delta_b, 0, 255).astype(np.uint8)
 
         new_albedo_rgb = cv2.cvtColor(albedo_lab, cv2.COLOR_LAB2RGB)
         new_albedo_rgb = new_albedo_rgb.astype(np.float32) / 255.0
@@ -356,10 +368,12 @@ def recolor_intrinsic(image_pil, mask_pil, target_r, target_g, target_b,
         recolored = np.clip(recolored, 0, 1)
 
         if gloss_level > 0.0:
-            luma = 0.2126 * recolored[:, :, 0] + 0.7152 * recolored[:, :, 1] + 0.0722 * recolored[:, :, 2]
+            luma = 0.2126 * recolored[:, :, 0] + 0.7152 * \
+                recolored[:, :, 1] + 0.0722 * recolored[:, :, 2]
             highlight_mask = luma > 0.86
             boost = 1.0 + gloss_level * 0.3
-            recolored[highlight_mask] = np.clip(recolored[highlight_mask] * boost, 0, 1)
+            recolored[highlight_mask] = np.clip(
+                recolored[highlight_mask] * boost, 0, 1)
 
         mask_3ch = mask_np[:, :, np.newaxis]
         blur_mask = cv2.GaussianBlur(mask_np, (7, 7), 3.0)
@@ -370,7 +384,8 @@ def recolor_intrinsic(image_pil, mask_pil, target_r, target_g, target_b,
         return Image.fromarray((result * 255).astype(np.uint8), 'RGB')
 
     except Exception as e:
-        logger.error(f"Intrinsic recolor failed: {e}\n{traceback.format_exc()}")
+        logger.error(
+            f"Intrinsic recolor failed: {e}\n{traceback.format_exc()}")
         if fallback_fn:
             logger.info("Falling back to recolor_adaptive")
             return fallback_fn(image_pil, mask_pil, target_r, target_g, target_b)
@@ -497,6 +512,7 @@ async def get_mask(
         raise HTTPException(500, str(e))
 
 
+# ========== ИЗМЕНЁННЫЙ ЭНДПОИНТ /ai-recolor ==========
 @app.post("/ai-recolor")
 async def ai_recolor(
     image: UploadFile = File(...),
@@ -506,6 +522,7 @@ async def ai_recolor(
     color_hex: str = Form("0xFF8B4513"),
     strength: float = Form(1.0),
     gloss: float = Form(-1.0),
+    mask_b64: str = Form(""),
     negative_point_x: str = Form(""),
     negative_point_y: str = Form(""),
 ):
@@ -522,27 +539,10 @@ async def ai_recolor(
 
     try:
         img_bytes = await image.read()
+        logger.info(f"   Image bytes read: {len(img_bytes)}")
         image_pil = Image.open(BytesIO(img_bytes)).convert("RGB")
         orig_w, orig_h = image_pil.size
         logger.info(f"   Original dimensions: {orig_w}x{orig_h}")
-
-        max_size = 1024
-        if orig_w > max_size or orig_h > max_size:
-            scale = min(max_size / orig_w, max_size / orig_h)
-            new_w = int(orig_w * scale)
-            new_h = int(orig_h * scale)
-            image_pil.thumbnail((max_size, max_size))
-            logger.info(f"   Resized to {new_w}x{new_h}, scale={scale:.3f}")
-            point_x = point_x * scale
-            point_y = point_y * scale
-        else:
-            scale = 1.0
-
-        px = int(point_x)
-        py = int(point_y)
-        logger.info(f"   Using scaled point: ({px},{py})")
-
-        image_np = np.array(image_pil)
 
         try:
             if color_hex.startswith("0x"):
@@ -555,53 +555,84 @@ async def ai_recolor(
             color_hex_int = 0xFF8B4513
         rgb_hex = color_hex_int & 0xFFFFFF
 
-        neg_xs = []
-        neg_ys = []
-        if negative_point_x.strip() and negative_point_y.strip():
-            neg_xs = [float(x.strip()) for x in negative_point_x.split(',')]
-            neg_ys = [float(y.strip()) for y in negative_point_y.split(',')]
-            neg_xs = [x * scale for x in neg_xs]
-            neg_ys = [y * scale for y in neg_ys]
-            neg_xs = neg_xs[:len(neg_ys)]
-            neg_ys = neg_ys[:len(neg_xs)]
-            neg_points = [[int(x), int(y)] for x, y in zip(neg_xs, neg_ys)]
+        # ---------- ЛОГИКА ПОЛУЧЕНИЯ МАСКИ ----------
+        if mask_b64:
+            # Используем готовую маску, SAM2 не запускаем
+            logger.info("   Using provided mask_b64, skipping SAM-2")
+            mask_bytes = base64.b64decode(mask_b64)
+            mask_pil = Image.open(BytesIO(mask_bytes)).convert("L")
+            # Приводим маску к размеру оригинального изображения
+            if mask_pil.size != image_pil.size:
+                mask_pil = mask_pil.resize(image_pil.size, Image.NEAREST)
         else:
-            neg_points = []
+            # Старая логика: запускаем SAM2 по точке
+            logger.info(f"   point_x: {point_x}, point_y: {point_y}")
+            max_size = 1024
+            if orig_w > max_size or orig_h > max_size:
+                scale = min(max_size / orig_w, max_size / orig_h)
+                new_w = int(orig_w * scale)
+                new_h = int(orig_h * scale)
+                image_pil.thumbnail((max_size, max_size))
+                logger.info(
+                    f"   Resized to {new_w}x{new_h}, scale={scale:.3f}")
+                point_x = point_x * scale
+                point_y = point_y * scale
+            else:
+                scale = 1.0
 
-        positive_coord = np.array([[px, py]])
-        positive_labels = np.array([1])
-        if len(neg_points) > 0:
-            negative_coords = np.array(neg_points)
-            negative_labels = np.array([0] * len(neg_points))
-            all_coords = np.vstack([positive_coord, negative_coords])
-            all_labels = np.concatenate([positive_labels, negative_labels])
-        else:
-            all_coords = positive_coord
-            all_labels = positive_labels
+            px = int(point_x)
+            py = int(point_y)
+            logger.info(f"   Using scaled point: ({px},{py})")
 
-        with torch.no_grad():
-            _predictor.set_image(image_np)
-            masks, scores, _ = _predictor.predict(
-                point_coords=all_coords,
-                point_labels=all_labels,
-                multimask_output=True,
-            )
-        best_idx = np.argmax(scores)
-        best_mask = masks[best_idx]
-        mask_area = np.sum(best_mask)
-        logger.info(
-            f"   SAM-2: got {len(masks)} masks, best score={scores[best_idx]:.3f}, mask area={mask_area} pixels")
+            image_np = np.array(image_pil)
 
-        if mask_area < 10:
-            logger.warning(
-                "⚠️ Mask area is very small – object might not be detected!")
+            neg_xs = []
+            neg_ys = []
+            if negative_point_x.strip() and negative_point_y.strip():
+                neg_xs = [float(x.strip())
+                          for x in negative_point_x.split(',')]
+                neg_ys = [float(y.strip())
+                          for y in negative_point_y.split(',')]
+                neg_xs = [x * scale for x in neg_xs]
+                neg_ys = [y * scale for y in neg_ys]
+                neg_xs = neg_xs[:len(neg_ys)]
+                neg_ys = neg_ys[:len(neg_xs)]
+                neg_points = [[int(x), int(y)] for x, y in zip(neg_xs, neg_ys)]
+            else:
+                neg_points = []
 
-        mask_binary = (best_mask > 0.5).astype(np.uint8) * 255
-        white_pixels = np.sum(mask_binary > 0)
-        logger.info(
-            f"   Mask white pixels: {white_pixels} of {mask_binary.size}")
-        mask_pil = Image.fromarray(mask_binary, mode='L')
+            positive_coord = np.array([[px, py]])
+            positive_labels = np.array([1])
+            if len(neg_points) > 0:
+                negative_coords = np.array(neg_points)
+                negative_labels = np.array([0] * len(neg_points))
+                all_coords = np.vstack([positive_coord, negative_coords])
+                all_labels = np.concatenate([positive_labels, negative_labels])
+            else:
+                all_coords = positive_coord
+                all_labels = positive_labels
 
+            with torch.no_grad():
+                _predictor.set_image(image_np)
+                masks, scores, _ = _predictor.predict(
+                    point_coords=all_coords,
+                    point_labels=all_labels,
+                    multimask_output=True,
+                )
+            best_idx = np.argmax(scores)
+            best_mask = masks[best_idx]
+            mask_area = np.sum(best_mask)
+            logger.info(
+                f"   SAM-2: best score={scores[best_idx]:.3f}, mask area={mask_area} pixels")
+
+            mask_binary = (best_mask > 0.5).astype(np.uint8) * 255
+            mask_pil = Image.fromarray(mask_binary, mode='L')
+            # Если изображение было ресайзнуто, возвращаем маску к оригинальному размеру
+            if scale != 1.0:
+                image_pil = Image.open(BytesIO(img_bytes)).convert("RGB")
+                mask_pil = mask_pil.resize(image_pil.size, Image.NEAREST)
+
+        # ---------- ПЕРЕКРАСКА ----------
         recolor_start = time.time()
         logger.info("   Recoloring with intrinsic decomposition...")
 
@@ -613,7 +644,8 @@ async def ai_recolor(
             gloss_level = MATERIAL_GLOSS_PRESETS.get(material, DEFAULT_GLOSS)
         else:
             gloss_level = max(0.0, min(1.0, gloss))
-        logger.info(f"   Using gloss_level={gloss_level:.2f} for material={material}")
+        logger.info(
+            f"   Using gloss_level={gloss_level:.2f} for material={material}")
 
         result = recolor_intrinsic(
             image_pil, mask_pil, target_r, target_g, target_b,
