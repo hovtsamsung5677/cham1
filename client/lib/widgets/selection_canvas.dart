@@ -439,10 +439,28 @@ class _SelectionCanvasPainter extends CustomPainter {
     final scaleX = baseWidth / srcWidth;
     final scaleY = baseHeight / srcHeight;
 
+    // Draw selection mask overlay if it exists
     if (selectionMask.isNotEmpty) {
       _drawSelectionOverlay(
         canvas,
         size,
+        baseOffsetX,
+        baseOffsetY,
+        baseWidth,
+        baseHeight,
+        scaleX,
+        scaleY,
+        srcX,
+        srcY,
+        srcWidth,
+        srcHeight,
+      );
+    }
+
+    // Draw AI mask overlay (independent of selectionMask)
+    if (aiMask != null && aiMask!.isNotEmpty) {
+      _drawAiMaskOverlay(
+        canvas,
         baseOffsetX,
         baseOffsetY,
         baseWidth,

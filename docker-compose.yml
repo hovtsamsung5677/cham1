@@ -17,8 +17,8 @@ services:
 
   ai-server:
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./server/Dockerfile
     image: segment-ai:latest
     container_name: segment-ai
     restart: unless-stopped

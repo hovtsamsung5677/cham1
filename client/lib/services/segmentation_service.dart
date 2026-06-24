@@ -30,7 +30,7 @@ class SegmentationService {
     }
   }
 
-  Future<Uint8List?> getMask({
+  Future<Map<String, String>?> getMask({
     required Uint8List imageBytes,
     required Offset positivePoint,
     required List<Offset>? negativePoints,
@@ -73,7 +73,11 @@ class SegmentationService {
       );
 
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
-        return Uint8List.fromList(response.bodyBytes);
+        final json = jsonDecode(response.body);
+        return {
+          'mask': json['mask'] as String,
+          'preview': json['preview'] as String,
+        };
       }
       return null;
     } catch (e) {
@@ -89,10 +93,10 @@ class SegmentationService {
     required int imageHeight,
     required String material,
     required int colorHex,
+    double gloss = -1.0,
     double strength = 1.0,
   }) async {
     try {
-      // Get RGB components from ARGB (Flutter Color.value format is 0xAARRGGBB)
       final int rgbValue = colorHex & 0xFFFFFF;
       final request = http.MultipartRequest(
         'POST',
@@ -112,6 +116,7 @@ class SegmentationService {
       request.fields['color_hex'] =
           '0x${rgbValue.toRadixString(16).padLeft(6, '0')}';
       request.fields['strength'] = strength.toString();
+      request.fields['gloss'] = gloss.toString();
 
       final streamedResponse = await request.send().timeout(
         const Duration(seconds: 60),

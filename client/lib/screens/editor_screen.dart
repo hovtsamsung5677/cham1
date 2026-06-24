@@ -1,4 +1,5 @@
 ﻿import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -19,7 +20,7 @@ import 'export_screen.dart';
 import 'projects_screen.dart';
 
 // ============================================================================
-//  ОТЛАДОЧНАЯ ФУНКЦИЯ НОРМАЛИЗАЦИИ МАСКИ (ДОБАВЛЕНЫ PRINT)
+//  НОРМАЛИЗАЦИЯ PNG МАСКИ В ДВОИЧНУЮ (сервер возвращает grayscale PNG)
 // ============================================================================
 Future<Uint8List?> _normalizePngMaskToBinary(List<dynamic> args) async {
   final Uint8List pngBytes = args[0] as Uint8List;
@@ -32,8 +33,9 @@ Future<Uint8List?> _normalizePngMaskToBinary(List<dynamic> args) async {
     final height = frame.image.height;
     print('📐 [normalize] Размер маски: $width x $height');
 
+    // Используем rawRgba для получения пиксельных данных
     final byteData = await frame.image.toByteData(
-      format: ui.ImageByteFormat.png,
+      format: ui.ImageByteFormat.rawRgba,
     );
     if (byteData == null) {
       print('❌ [normalize] byteData == null');
@@ -44,17 +46,12 @@ Future<Uint8List?> _normalizePngMaskToBinary(List<dynamic> args) async {
     final result = Uint8List(width * height);
 
     int whiteCount = 0;
+    // rawRgba даёт RGBA (4 байта на пиксель), сервер возвращает grayscale
     for (int i = 0; i < result.length; i++) {
       final idx = i * 4;
-      if (idx + 3 < pixels.length) {
-        result[i] = pixels[idx] > 128 ? 1 : 0;
-        if (result[i] == 1) whiteCount++;
-      } else if (idx < pixels.length) {
-        result[i] = pixels[idx] > 128 ? 1 : 0;
-        if (result[i] == 1) whiteCount++;
-      } else {
-        result[i] = 0;
-      }
+      final r = pixels[idx];
+      result[i] = r > 128 ? 1 : 0;
+      if (result[i] == 1) whiteCount++;
     }
 
     print(
@@ -198,6 +195,10 @@ class _EditorScreenState extends State<EditorScreen>
   final List<Offset> _segPositivePoints = [];
   final List<Offset> _segNegativePoints = [];
 
+  // Base64 strings from /get-mask response
+  String? _currentMaskB64;
+  String? _currentPreviewB64;
+
   @override
   void initState() {
     super.initState();
@@ -237,7 +238,6 @@ class _EditorScreenState extends State<EditorScreen>
                   return const _EmptyCanvasPlaceholder();
                 }
 
-                // ОТЛАДКА: выводим состояние маски
                 if (_currentAiMask != null) {
                   print(
                     '🖼️ [build] _currentAiMask не null, длина: ${_currentAiMask!.length}',
@@ -307,9 +307,12 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   // ==========================================================================
-  // BOTTOM PANEL
+  //  BOTTOM PANEL
   // ==========================================================================
   Widget _buildBottomPanel() {
+    final appState = context.watch<AppState>();
+    final editorState = appState.editorScreenState;
+
     return Align(
       alignment: Alignment.bottomCenter,
       child: Container(
@@ -333,47 +336,105 @@ class _EditorScreenState extends State<EditorScreen>
             ),
             const SizedBox(height: 14),
 
-            // Central FAB for auto-segmentation
-            _buildAutoSegmentationFAB(),
-            const SizedBox(height: 30),
-
-            // Bottom actions row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _BottomAction(
-                  child: const _ColorPreviewWidget(),
-                  label: 'Цвет',
-                  onTap: () => _showColorPicker(context),
-                ),
-                const SizedBox(width: 24),
-                _BottomAction(
-                  child: const _IconAssetWidget(
-                    assetPath: 'assets/icons/Squared_Menu.png',
-                    size: 26,
+            // State-dependent content
+            if (editorState == EditorScreenState.idle) ...[
+              _buildAutoSegmentationFAB(),
+              const SizedBox(height: 10),
+              const Text(
+                'Нажмите на объект для выделения',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ] else if (editorState == EditorScreenState.maskPreview) ...[
+              const Text(
+                'Это выделенный объект. Выберите цвет и параметры.',
+                style: TextStyle(color: Colors.white, fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _MaskConfirmButton(
+                    label: 'Выглядит верно',
+                    icon: Icons.check_circle,
+                    color: Colors.green,
+                    onTap: _confirmMask,
                   ),
-                  label: 'Палитра',
-                  onTap: () => _showColorPalette(context),
-                ),
-                const SizedBox(width: 24),
-                _BottomAction(
-                  child: Icon(
-                    _currentAiMask != null
-                        ? Icons.check_circle
-                        : Icons.visibility,
-                    size: 26,
-                    color: _currentAiMask != null
-                        ? const Color(0xFFFFC107)
-                        : Colors.white,
+                  const SizedBox(width: 16),
+                  _MaskConfirmButton(
+                    label: 'Выбрать заново',
+                    icon: Icons.close,
+                    color: Colors.red,
+                    onTap: _resetMask,
                   ),
-                  label: _currentAiMask != null ? 'Перекрасить' : 'Превью',
-                  onTap: () {
-                    if (_currentAiMask != null &&
-                        _segPositivePoints.isNotEmpty) {
-                      _runAiRecolor();
-                    } else {
-                      _applyRecoloring(context);
-                    }
+                ],
+              ),
+              const SizedBox(height: 10),
+              _buildAutoSegmentationFAB(),
+            ] else if (editorState == EditorScreenState.paramsSelect) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _BottomAction(
+                    child: const _ColorPreviewWidget(),
+                    label: 'Цвет',
+                    onTap: () => _showColorPicker(context),
+                  ),
+                  const SizedBox(width: 24),
+                  _BottomAction(
+                    child: const _IconAssetWidget(
+                      assetPath: 'assets/icons/Squared_Menu.png',
+                      size: 26,
+                    ),
+                    label: 'Палитра',
+                    onTap: () => _showColorPalette(context),
+                  ),
+                  const SizedBox(width: 24),
+                  _BottomAction(
+                    child: Icon(
+                      Icons.brush,
+                      size: 26,
+                      color: Colors.white,
+                    ),
+                    label: 'Блеск',
+                    onTap: () => _showGlossSlider(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _GlossIndicator(gloss: appState.glossLevel),
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: _runAiRecolor,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFC107),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Text(
+                    'Перекрасить',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ] else if (editorState == EditorScreenState.recoloring) ...[
+              const CircularProgressIndicator(color: Color(0xFFFFC107)),
+              const SizedBox(height: 8),
+              const Text(
+                'Перекрашиваем...',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
                   },
                 ),
               ],
@@ -389,13 +450,15 @@ class _EditorScreenState extends State<EditorScreen>
   // ==========================================================================
   Widget _buildAutoSegmentationFAB() {
     final bool isActive = _isSegmentationModeActive;
+    final appState = context.watch<AppState>();
+    final editorState = appState.editorScreenState;
 
     return SizedBox(
       width: 80,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (_currentAiMask != null) ...[
+          if (_currentAiMask != null && editorState == EditorScreenState.idle) ...[
             GestureDetector(
               onTap: () {
                 setState(() {
@@ -427,6 +490,13 @@ class _EditorScreenState extends State<EditorScreen>
             },
             child: GestureDetector(
               onTap: () {
+                if (editorState == EditorScreenState.maskPreview) {
+                  _resetMask();
+                  setState(() {
+                    _isSegmentationModeActive = true;
+                  });
+                  return;
+                }
                 setState(() {
                   _isSegmentationModeActive = !_isSegmentationModeActive;
                   if (!_isSegmentationModeActive) {
@@ -470,12 +540,11 @@ class _EditorScreenState extends State<EditorScreen>
                   builder: (context, value, child) {
                     return Opacity(opacity: value, child: child);
                   },
-                  child: Center(
-                    child: Image.asset(
-                      'assets/icons/Hand Cursor.png',
-                      width: 32,
-                      height: 32,
-                      color: isActive ? Colors.white : Colors.white70,
+                  child: const Center(
+                    child: Icon(
+                      Icons.center_focus_strong,
+                      size: 32,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -525,7 +594,7 @@ class _EditorScreenState extends State<EditorScreen>
       });
 
       print('📤 [seg] Отправка запроса к серверу...');
-      final maskBytes = await _segmentationService.getMask(
+      final maskResponse = await _segmentationService.getMask(
         imageBytes: imageBytes,
         positivePoint: imagePosition,
         negativePoints: const [],
@@ -534,30 +603,43 @@ class _EditorScreenState extends State<EditorScreen>
       );
 
       print(
-        '📥 [seg] Получен ответ, maskBytes = ${maskBytes?.length ?? 'null'} байт',
+        '📥 [seg] Получен ответ, maskResponse = ${maskResponse != null ? "not null" : "null"}',
       );
 
-      if (mounted && maskBytes != null) {
-        print('🔄 [seg] Запуск нормализации через compute...');
-        final normalizedMask = await compute(_normalizePngMaskToBinary, [
-          maskBytes,
-        ]);
+      if (mounted && maskResponse != null) {
+        final maskB64 = maskResponse['mask'];
+        final previewB64 = maskResponse['preview'];
 
-        if (normalizedMask != null) {
-          print('✅ [seg] Маска нормализована, длина: ${normalizedMask.length}');
-          // Проверим, есть ли единицы
-          int ones = normalizedMask.where((v) => v == 1).length;
-          print('🔢 [seg] Количество единиц в маске: $ones');
-          setState(() {
-            _currentAiMask = normalizedMask;
-            print('🔄 [seg] setState: _currentAiMask установлен');
-          });
-          appState.setAiMask(normalizedMask);
+        if (maskB64 != null && previewB64 != null) {
+          final maskBytes = base64Decode(maskB64);
+          final previewBytes = base64Decode(previewB64);
+
+          print('🔄 [seg] Запуск нормализации через compute...');
+          final normalizedMask = await compute(_normalizePngMaskToBinary, [
+            maskBytes,
+          ]);
+
+          if (normalizedMask != null) {
+            print('✅ [seg] Маска нормализована, длина: ${normalizedMask.length}');
+            int ones = normalizedMask.where((v) => v == 1).length;
+            print('🔢 [seg] Количество единиц в маске: $ones');
+            setState(() {
+              _currentAiMask = normalizedMask;
+              _currentMaskB64 = maskB64;
+              _currentPreviewB64 = previewB64;
+              print('🔄 [seg] setState: _currentAiMask установлен');
+            });
+            appState.setAiMask(normalizedMask);
+            appState.setAiMaskPreview(previewBytes);
+            appState.setEditorScreenState(EditorScreenState.maskPreview);
+          } else {
+            print('❌ [seg] normalize вернул null');
+          }
         } else {
-          print('❌ [seg] normalize вернул null');
+          print('❌ [seg] mask или preview отсутствуют в ответе');
         }
       } else {
-        print('❌ [seg] maskBytes == null или mounted == false');
+        print('❌ [seg] maskResponse == null или mounted == false');
       }
     } catch (e) {
       print('❌ [seg] Ошибка: $e');
@@ -589,7 +671,7 @@ class _EditorScreenState extends State<EditorScreen>
         _segNegativePoints.add(imagePosition);
       });
 
-      final maskBytes = await _segmentationService.getMask(
+      final maskResponse = await _segmentationService.getMask(
         imageBytes: imageBytes,
         positivePoint: _segPositivePoints.first,
         negativePoints: _segNegativePoints,
@@ -597,15 +679,26 @@ class _EditorScreenState extends State<EditorScreen>
         imageHeight: imageHeight,
       );
 
-      if (mounted && maskBytes != null) {
-        final normalizedMask = await compute(_normalizePngMaskToBinary, [
-          maskBytes,
-        ]);
-        if (normalizedMask != null) {
-          setState(() {
-            _currentAiMask = normalizedMask;
-          });
-          appState.setAiMask(normalizedMask);
+      if (mounted && maskResponse != null) {
+        final maskB64 = maskResponse['mask'];
+        final previewB64 = maskResponse['preview'];
+
+        if (maskB64 != null && previewB64 != null) {
+          final maskBytes = base64Decode(maskB64);
+          final previewBytes = base64Decode(previewB64);
+
+          final normalizedMask = await compute(_normalizePngMaskToBinary, [
+            maskBytes,
+          ]);
+          if (normalizedMask != null) {
+            setState(() {
+              _currentAiMask = normalizedMask;
+              _currentMaskB64 = maskB64;
+              _currentPreviewB64 = previewB64;
+            });
+            appState.setAiMask(normalizedMask);
+            appState.setAiMaskPreview(previewBytes);
+          }
         }
       }
     } catch (e) {
@@ -622,9 +715,11 @@ class _EditorScreenState extends State<EditorScreen>
     final appState = context.read<AppState>();
 
     if (appState.isLoading) return;
-    if (_currentAiMask == null || _segPositivePoints.isEmpty) return;
+    final maskToUse = appState.confirmedAiMask ?? _currentAiMask;
+    if (maskToUse == null || _segPositivePoints.isEmpty) return;
 
     appState.setLoading(true);
+    appState.setEditorScreenState(EditorScreenState.recoloring);
 
     try {
       final imageBytes = appState.capturedImage;
@@ -642,6 +737,7 @@ class _EditorScreenState extends State<EditorScreen>
         imageHeight: imageHeight,
         material: appState.selectedMaterial,
         colorHex: appState.selectedColor.value,
+        gloss: appState.glossLevel,
         strength: 1.0,
       );
 
@@ -649,10 +745,7 @@ class _EditorScreenState extends State<EditorScreen>
         appState.setPreviewImage(resultBytes);
         if (!appState.isPreviewMode) appState.togglePreviewMode();
         appState.addProject(resultBytes);
-        _currentAiMask = null;
-        _segPositivePoints.clear();
-        _segNegativePoints.clear();
-        context.read<AppState>().setAiMask(null);
+        appState.setEditorScreenState(EditorScreenState.result);
         if (mounted) {
           Navigator.push(
             context,
@@ -666,12 +759,41 @@ class _EditorScreenState extends State<EditorScreen>
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Ошибка AI перекраски')));
+        appState.setEditorScreenState(EditorScreenState.paramsSelect);
       }
     } catch (e) {
       debugPrint('Ошибка AI: $e');
+      appState.setEditorScreenState(EditorScreenState.paramsSelect);
     } finally {
       appState.setLoading(false);
     }
+  }
+
+  void _confirmMask() {
+    final appState = context.read<AppState>();
+    setState(() {
+      appState.setConfirmedAiMask(_currentAiMask);
+      appState.setPreviewImage(null);
+      appState.setIsPreviewMode(false);
+      _isSegmentationModeActive = false;
+      appState.setEditorScreenState(EditorScreenState.paramsSelect);
+    });
+  }
+
+  void _resetMask() {
+    final appState = context.read<AppState>();
+    setState(() {
+      _currentAiMask = null;
+      _currentMaskB64 = null;
+      _currentPreviewB64 = null;
+      _segPositivePoints.clear();
+      _segNegativePoints.clear();
+      _isSegmentationModeActive = false;
+      appState.setAiMask(null);
+      appState.setAiMaskPreview(null);
+      appState.setConfirmedAiMask(null);
+      appState.setEditorScreenState(EditorScreenState.idle);
+    });
   }
 
   // ==========================================================================
@@ -732,6 +854,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   void _showColorPicker(BuildContext context) async {
     final appState = context.read<AppState>();
+    final editorState = appState.editorScreenState;
     await Navigator.push(
       context,
       AppTransitions.fadeRoute(
@@ -739,7 +862,10 @@ class _EditorScreenState extends State<EditorScreen>
           initialColor: appState.selectedColor,
           onColorChanged: (color) {
             appState.setSelectedColor(color);
-            _applyLiveRecoloring(context, color);
+            if (editorState != EditorScreenState.paramsSelect &&
+                editorState != EditorScreenState.maskPreview) {
+              _applyLiveRecoloring(context, color);
+            }
           },
         ),
       ),
@@ -747,6 +873,65 @@ class _EditorScreenState extends State<EditorScreen>
     if (mounted && appState.isPreviewMode && appState.previewImage == null) {
       appState.togglePreviewMode();
     }
+  }
+
+  void _showGlossSlider(BuildContext context) {
+    final appState = context.read<AppState>();
+    double tempGloss = appState.glossLevel;
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF2C2C2E),
+          title: const Text(
+            'Уровень блеска',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                tempGloss <= 0.0
+                    ? 'Без блеска'
+                    : tempGloss < 0.3
+                        ? 'Матовый'
+                        : tempGloss < 0.6
+                            ? 'Полуматовый'
+                            : tempGloss < 0.8
+                                ? 'Полуглянцевый'
+                                : 'Глянцевый',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              Slider(
+                value: tempGloss,
+                min: 0.0,
+                max: 1.0,
+                divisions: 20,
+                activeColor: const Color(0xFFFFC107),
+                label: '${(tempGloss * 100).round()}%',
+                onChanged: (value) {
+                  setDialogState(() {
+                    tempGloss = value;
+                  });
+                },
+                onChangeEnd: (value) {
+                  appState.setGlossLevel(value);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'OK',
+                style: TextStyle(color: Color(0xFFFFC107)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _applyLiveRecoloring(BuildContext context, Color color) async {
@@ -846,7 +1031,6 @@ class _EditorScreenState extends State<EditorScreen>
     if (!mounted) return;
     if (result != null) {
       appState.setSelectedColor(result);
-      _applyRecoloring(context);
     }
   }
 
@@ -1099,6 +1283,71 @@ class _ColorPreviewWidget extends StatelessWidget {
       width: 28,
       height: 28,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+}
+
+class _MaskConfirmButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _MaskConfirmButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 18),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GlossIndicator extends StatelessWidget {
+  final double gloss;
+
+  const _GlossIndicator({required this.gloss});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = gloss <= 0.0
+        ? 'Без блеска'
+        : gloss < 0.3
+            ? 'Матовый'
+            : gloss < 0.6
+                ? 'Полуматовый'
+                : gloss < 0.8
+                    ? 'Полуглянцевый'
+                    : 'Глянцевый';
+    return Text(
+      'Блеск: ${label} (${(gloss * 100).round()}%)',
+      style: const TextStyle(color: Colors.white70, fontSize: 12),
     );
   }
 }

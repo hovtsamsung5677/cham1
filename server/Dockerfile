@@ -9,11 +9,14 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install dependencies first (will be cached unless requirements change)
-COPY requirements.ai.txt .
+COPY server/requirements.ai.txt ./requirements.ai.txt
 RUN pip3 install -r requirements.ai.txt --no-cache-dir
 
+# Copy Intrinsic model
+COPY intrinsic_model/ ./intrinsic_model/
+
 # Copy app last (frequently changed, invalidates cache only for final layer)
-COPY app.py .
+COPY server/app.py ./app.py
 
 EXPOSE 8001
 

@@ -132,6 +132,42 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Editor screen state for two-step UX
+  EditorScreenState _editorScreenState = EditorScreenState.idle;
+  EditorScreenState get editorScreenState => _editorScreenState;
+
+  void setEditorScreenState(EditorScreenState state) {
+    _editorScreenState = state;
+    notifyListeners();
+  }
+
+  // AI mask preview image (base64 decoded bytes)
+  Uint8List? _aiMaskPreview;
+  Uint8List? get aiMaskPreview => _aiMaskPreview;
+
+  void setAiMaskPreview(Uint8List? preview) {
+    _aiMaskPreview = preview;
+    notifyListeners();
+  }
+
+  // Confirmed AI mask (saved after user clicks "Looks correct")
+  Uint8List? _confirmedAiMask;
+  Uint8List? get confirmedAiMask => _confirmedAiMask;
+
+  void setConfirmedAiMask(Uint8List? mask) {
+    _confirmedAiMask = mask;
+    notifyListeners();
+  }
+
+  // Gloss level (0.0 - 1.0)
+  double _glossLevel = -1.0;
+  double get glossLevel => _glossLevel;
+
+  void setGlossLevel(double gloss) {
+    _glossLevel = gloss;
+    notifyListeners();
+  }
+
   // Segmentation points
   final List<Offset> _positivePoints = [];
   List<Offset> get positivePoints => List.unmodifiable(_positivePoints);
@@ -200,6 +236,11 @@ class AppState extends ChangeNotifier {
     _selectionMask = Uint8List(0);
     _previewImage = null;
     _isPreviewMode = false;
+    _aiMask = null;
+    _aiMaskPreview = null;
+    _confirmedAiMask = null;
+    _editorScreenState = EditorScreenState.idle;
+    _glossLevel = -1.0;
     // Reset history and save initial empty state
     _maskHistory.clear();
     _historyIndex = -1;
@@ -300,6 +341,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Set preview mode
+  void setIsPreviewMode(bool value) {
+    _isPreviewMode = value;
+    notifyListeners();
+  }
+
   /// Set preview image
   void setPreviewImage(Uint8List? image) {
     _previewImage = image;
@@ -353,12 +400,16 @@ class AppState extends ChangeNotifier {
 
 /// Application stages
 enum AppStage {
-  /// Camera capture stage
   camera,
-
-  /// Image editor stage
   editor,
-
-  /// Color picker stage
   colorPicker,
+}
+
+/// Editor screen states for two-step UX
+enum EditorScreenState {
+  idle,
+  maskPreview,
+  paramsSelect,
+  recoloring,
+  result,
 }

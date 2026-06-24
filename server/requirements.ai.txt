@@ -1,4 +1,4 @@
-﻿# AI Server requirements (SAM-2 + adaptive recolor)
+﻿# AI Server requirements (SAM-2 + adaptive recolor + Intrinsic)
 torch>=2.0.0
 torchvision>=0.15.0
 numpy>=1.24.0
@@ -7,6 +7,7 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 huggingface-hub>=0.20.0
+opencv-python-headless>=4.8.0
 
 # SAM-2
 sam2
@@ -14,6 +15,10 @@ scipy
 scikit-image
 timm
 einops
+
+# Intrinsic Image Decomposition
+altered_midas @ git+https://github.com/CCareaga/MiDaS@fb51e3a
+chrislib @ git+https://github.com/CCareaga/chrislib@9a4c63f
 
 # Utilities
 requests
